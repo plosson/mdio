@@ -4,6 +4,7 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { yCollab } from 'y-codemirror.next';
 import { remoteEditExtension, wireRemoteEdits } from './remote-edits';
+import { commentHighlightExtension, wireComments } from './comments';
 import { closeHistory, openHistory } from './history';
 import { TEXT_KEY, registerAuthor } from '../shared/blame';
 
@@ -157,12 +158,20 @@ function openDocument(path: string) {
       EditorView.lineWrapping,
       yCollab(ytext, provider.awareness, { undoManager }),
       remoteEditExtension(),
+      commentHighlightExtension(),
     ],
     parent: editorHost,
   });
-  const cleanup = wireRemoteEdits(view, ytext, provider, doc.clientID);
+  const cleanupRemoteEdits = wireRemoteEdits(view, ytext, provider, doc.clientID);
+  const cleanupComments = wireComments(view, doc, user);
+  const cleanup = () => {
+    cleanupRemoteEdits();
+    cleanupComments();
+  };
 
   current = { provider, view, doc, cleanup };
+  // Test hook: lets e2e drive precise editor selections.
+  (globalThis as { sharemdView?: EditorView }).sharemdView = view;
   renderPresence(provider);
 }
 

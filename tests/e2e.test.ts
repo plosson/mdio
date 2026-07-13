@@ -179,6 +179,141 @@ test(
 );
 
 test(
+  'comments: human comments a selection, agent replies and resolves, browser follows live',
+  async () => {
+    // Human selects "First note" and opens a comment thread on it.
+    await page.evaluate(() => {
+      const view = (globalThis as unknown as { sharemdView: { state: any; dispatch: any } })
+        .sharemdView;
+      const at = view.state.doc.toString().indexOf('First note');
+      view.dispatch({ selection: { anchor: at, head: at + 'First note'.length } });
+    });
+    await page.click('#comment-add');
+    await page.fill(
+      '#comments-list textarea[data-draft="new-comment"]',
+      'HUMAN: is this note still valid, @plosson/alice?',
+    );
+    await page.click('#comments-list .comment-btn.primary');
+    await page.waitForSelector('.sharemd-comment'); // range highlighted in the editor
+    await waitForText('#comments-list', 'is this note still valid');
+
+    // The agent finds the thread by mention, replies, then resolves it.
+    let rootId = '';
+    for (let attempt = 0; attempt < 40 && !rootId; attempt++) {
+      const { threads } = await alice.call<{
+        threads: Array<{ root: { id: string }; currentText: string | null }>;
+      }>('list_comments', { mentioning: 'plosson/alice' });
+      if (threads.length > 0) {
+        rootId = threads[0]!.root.id;
+        expect(threads[0]!.currentText).toBe('First note');
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+    expect(rootId).not.toBe('');
+
+    await alice.call('reply_comment', { commentId: rootId, body: 'still valid, checked @Human' });
+    await waitForText('#comments-list', 'still valid, checked');
+
+    await alice.call('resolve_comment', { commentId: rootId });
+    // Resolved: highlight gone, thread hidden behind the "show resolved" filter.
+    await page.waitForFunction(
+      () => document.querySelectorAll('.sharemd-comment').length === 0,
+      undefined,
+      { timeout: 5000 },
+    );
+    await waitForText('#comments-list', 'resolved thread hidden');
+    await page.check('#comments-show-resolved');
+    await waitForText('#comments-list', 'is this note still valid');
+    await waitForText('#comments-list .comment-card.resolved', 'Reopen');
+  },
+  30_000,
+);
+
+test(
+  'browser comment interactions: nudge, mention autocomplete, reply, edit, focus, orphan, delete',
+  async () => {
+    const selectInEditor = (needle: string, collapse = false) =>
+      page.evaluate(
+        ({ text, empty }) => {
+          const view = (globalThis as unknown as { sharemdView: { state: any; dispatch: any } })
+            .sharemdView;
+          const at = view.state.doc.toString().indexOf(text);
+          view.dispatch({ selection: { anchor: at, head: empty ? at : at + text.length } });
+        },
+        { text: needle, empty: collapse },
+      );
+
+    // Empty selection: the add button nudges instead of opening a composer.
+    await selectInEditor('ALICE: second paragraph', true);
+    await page.click('#comment-add');
+    await page.waitForFunction(() =>
+      document.querySelector('#comment-add')?.classList.contains('nudge'),
+    );
+    expect(await page.isVisible('textarea[data-draft="new-comment"]')).toBe(false);
+
+    // Mention autocomplete: type "@plo", pick the second candidate with the keyboard.
+    await selectInEditor('second paragraph');
+    await page.click('#comment-add');
+    await page.fill('textarea[data-draft="new-comment"]', 'needs polish @plo');
+    await page.waitForSelector('.mention-dropdown:not([hidden]) .mention-option');
+    const options = await page.locator('.mention-option').allTextContents();
+    expect(options).toEqual(['@plosson/alice', '@plosson/bob']);
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    expect(await page.inputValue('textarea[data-draft="new-comment"]')).toBe(
+      'needs polish @plosson/bob ',
+    );
+    await page.click('#comments-list .comment-btn.primary');
+    await waitForText('#comments-list', 'needs polish');
+    expect(await page.textContent('.comment-card:not(.resolved) .comment-mention')).toBe(
+      '@plosson/bob',
+    );
+
+    // Browser-side reply on the open thread.
+    await page.fill('.comment-card:not(.resolved) textarea[data-draft^="reply:"]', 'on it');
+    await page.click('.comment-card:not(.resolved) .comment-reply .comment-btn.primary');
+    await waitForText('#comments-list', 'on it');
+
+    // Edit own root comment.
+    await page.click('.comment-card:not(.resolved) .comment-entry:not(.reply) .comment-btn.subtle');
+    await page.fill('.comment-card:not(.resolved) textarea[data-draft^="edit:"]', 'polish DONE');
+    await page.click('.comment-card:not(.resolved) .comment-compose .comment-btn.primary');
+    await waitForText('#comments-list', 'polish DONE');
+    await waitForText('#comments-list', '(edited)');
+
+    // Clicking the highlight in the editor focuses the thread card.
+    await page.click('.sharemd-comment');
+    await page.waitForSelector('.comment-card.focused');
+    expect(await page.textContent('.comment-card.focused')).toInclude('polish DONE');
+
+    // An agent rewriting the commented text orphans the thread, visibly.
+    await alice.call('replace_text', {
+      query: 'ALICE: second paragraph, streamed.',
+      replacement: 'ALICE: rewritten paragraph.',
+    });
+    await waitForText('#comments-list', '(original text deleted)');
+    await page.waitForFunction(() => document.querySelectorAll('.sharemd-comment').length === 0);
+
+    // Delete the reply, then the root — thread disappears entirely.
+    const deleteButtons = page.locator(
+      '.comment-card:not(.resolved) .comment-entry.reply .comment-btn.subtle >> text=delete',
+    );
+    await deleteButtons.click();
+    await page.waitForFunction(
+      () => !document.querySelector('#comments-list')?.textContent?.includes('on it'),
+    );
+    await page.click(
+      '.comment-card:not(.resolved) .comment-entry:not(.reply) .comment-btn.subtle >> text=delete',
+    );
+    await page.waitForFunction(
+      () => !document.querySelector('#comments-list')?.textContent?.includes('polish DONE'),
+    );
+  },
+  30_000,
+);
+
+test(
   'first visit asks who you are, rejects "/", remembers the name, and logout forgets it',
   async () => {
     const context = await browser.newContext();

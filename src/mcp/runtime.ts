@@ -1,6 +1,16 @@
 import * as Y from 'yjs';
 import { DocumentSession, type AgentIdentity } from './session';
 import { blameLines, type BlameLine } from '../shared/blame';
+import {
+  addComment,
+  commentAuthor,
+  deleteComment,
+  editComment,
+  listThreads,
+  replyToComment,
+  setResolved,
+  type CommentThread,
+} from '../shared/comments';
 
 /**
  * Editing runtime for one agent. Match handles and the cursor are stored as Yjs
@@ -305,6 +315,83 @@ export class AgentRuntime {
     const deletedPreview =
       deletedText.length <= 200 ? deletedText : `${deletedText.slice(0, 150)} … ${deletedText.slice(-40)}`;
     return { deletedChars: to - from, deletedPreview };
+  }
+
+  // ── comments ─────────────────────────────────────────────────────────
+
+  addComment(matchId: string, body: string): { commentId: string; quotedText: string } {
+    const session = this.requireSession();
+    const { from, to } = this.resolveMatch(matchId);
+    let commentId = '';
+    session.transact(() => {
+      commentId = addComment(session.doc, { author: this.identity.name, body, from, to });
+    });
+    return { commentId, quotedText: this.text().slice(from, to) };
+  }
+
+  listComments(input: { includeResolved?: boolean; mentioning?: string }): {
+    threads: Array<CommentThread & { currentText: string | null }>;
+  } {
+    const session = this.requireSession();
+    const content = this.text();
+    let threads = listThreads(session.doc);
+    if (input.includeResolved === false) {
+      threads = threads.filter((thread) => !thread.resolved);
+    }
+    if (input.mentioning) {
+      threads = threads.filter((thread) =>
+        [thread.root, ...thread.replies].some((comment) => comment.mentions.includes(input.mentioning!)),
+      );
+    }
+    return {
+      threads: threads.map((thread) => ({
+        ...thread,
+        currentText: thread.range ? content.slice(thread.range.from, thread.range.to) : null,
+      })),
+    };
+  }
+
+  replyComment(commentId: string, body: string): { commentId: string } {
+    const session = this.requireSession();
+    let replyId = '';
+    session.transact(() => {
+      replyId = replyToComment(session.doc, { author: this.identity.name, body, parentId: commentId });
+    });
+    return { commentId: replyId };
+  }
+
+  /** Edit and delete are author-only (convention-enforced, like all identity here). */
+  private requireOwn(commentId: string, verb: string): DocumentSession {
+    const session = this.requireSession();
+    const author = commentAuthor(session.doc, commentId);
+    if (author !== this.identity.name) {
+      throw new Error(`Only the author can ${verb} a comment — this one is by "${author}".`);
+    }
+    return session;
+  }
+
+  editComment(commentId: string, body: string): { commentId: string } {
+    const session = this.requireOwn(commentId, 'edit');
+    session.transact(() => {
+      editComment(session.doc, commentId, body);
+    });
+    return { commentId };
+  }
+
+  resolveComment(commentId: string, resolved: boolean): { commentId: string; resolved: boolean } {
+    const session = this.requireSession();
+    session.transact(() => {
+      setResolved(session.doc, commentId, resolved);
+    });
+    return { commentId, resolved };
+  }
+
+  deleteComment(commentId: string): { deleted: string } {
+    const session = this.requireOwn(commentId, 'delete');
+    session.transact(() => {
+      deleteComment(session.doc, commentId);
+    });
+    return { deleted: commentId };
   }
 
   // ── stepwise edit sessions ───────────────────────────────────────────

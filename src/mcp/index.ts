@@ -150,6 +150,66 @@ server.registerTool(
 );
 
 server.registerTool(
+  'add_comment',
+  {
+    description:
+      'Attach a comment thread to a text range, anchored via a search_text match handle. The anchor follows the text under concurrent edits; if the text is later deleted the thread survives as "orphaned" with its original quote. Mention peers with @name or @owner/agent in the body.',
+    inputSchema: { matchId: z.string().min(1), body: z.string().min(1) },
+  },
+  ({ matchId, body }) => respond(() => runtime.addComment(matchId, body)),
+);
+
+server.registerTool(
+  'list_comments',
+  {
+    description:
+      'List comment threads on the open document (root + replies, resolved state, quoted and current anchored text). Filter with includeResolved:false or mentioning:"name" (e.g. your own username to find comments addressed to you).',
+    inputSchema: {
+      includeResolved: z.boolean().optional(),
+      mentioning: z.string().optional(),
+    },
+  },
+  (input) => respond(() => runtime.listComments(input)),
+);
+
+server.registerTool(
+  'reply_comment',
+  {
+    description: 'Reply to a comment thread (commentId must be the thread root).',
+    inputSchema: { commentId: z.string().min(1), body: z.string().min(1) },
+  },
+  ({ commentId, body }) => respond(() => runtime.replyComment(commentId, body)),
+);
+
+server.registerTool(
+  'edit_comment',
+  {
+    description: 'Edit the body of a comment you authored.',
+    inputSchema: { commentId: z.string().min(1), body: z.string().min(1) },
+  },
+  ({ commentId, body }) => respond(() => runtime.editComment(commentId, body)),
+);
+
+server.registerTool(
+  'resolve_comment',
+  {
+    description:
+      'Resolve a comment thread (or reopen it with resolved:false). Anyone can resolve; commentId must be the thread root.',
+    inputSchema: { commentId: z.string().min(1), resolved: z.boolean().optional() },
+  },
+  ({ commentId, resolved }) => respond(() => runtime.resolveComment(commentId, resolved ?? true)),
+);
+
+server.registerTool(
+  'delete_comment',
+  {
+    description: 'Delete a comment you authored. Deleting a thread root deletes its replies too.',
+    inputSchema: { commentId: z.string().min(1) },
+  },
+  ({ commentId }) => respond(() => runtime.deleteComment(commentId)),
+);
+
+server.registerTool(
   'begin_edit',
   {
     description:
