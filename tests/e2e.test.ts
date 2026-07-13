@@ -353,6 +353,89 @@ test(
 );
 
 test(
+  'url hash tracks navigation and restores doc, preview, and comment focus across reload',
+  async () => {
+    // Switching documents pushes a history entry with the doc in the hash.
+    await page.click('li[data-path="other.md"]');
+    await waitForText('#doc-title', 'other.md');
+    await page.waitForFunction(() => location.hash.includes('doc=other.md'));
+
+    // View state (preview) is reflected in the hash without new history entries.
+    await page.click('#preview-toggle');
+    await page.waitForFunction(() => location.hash.includes('preview=1'));
+
+    // Creating a comment focuses it and deep-links it in the hash.
+    await page.evaluate(() => {
+      const view = (globalThis as unknown as { sharemdView: { state: any; dispatch: any } })
+        .sharemdView;
+      const at = view.state.doc.toString().indexOf('Other');
+      view.dispatch({ selection: { anchor: at, head: at + 'Other'.length } });
+    });
+    await page.click('#comment-add');
+    await page.fill('textarea[data-draft="new-comment"]', 'deep-linkable thread');
+    await page.click('#comments-list .comment-btn.primary');
+    await page.waitForFunction(() => location.hash.includes('comment=c-'));
+
+    // Reload: same document, preview open, same thread focused.
+    await page.reload();
+    await page.waitForSelector('.cm-content');
+    await waitForText('#doc-title', 'other.md');
+    await page.waitForSelector('#preview:not([hidden])');
+    await page.waitForSelector('.comment-card.focused');
+    expect(await page.textContent('.comment-card.focused')).toInclude('deep-linkable thread');
+
+    // Back returns to the previous document (and its view state: preview off).
+    await page.goBack();
+    await waitForText('#doc-title', 'demo.md');
+    await page.waitForFunction(() => location.hash.includes('doc=demo.md'));
+    await page.waitForSelector('#preview', { state: 'hidden' });
+  },
+  30_000,
+);
+
+test(
+  'url hash edge cases: filter state, click focus, manual edits, bad doc, stale comment, legacy param',
+  async () => {
+    // Legacy ?doc= was migrated into the hash at boot: query is clean, hash has the doc.
+    expect(await page.evaluate(() => location.search)).toBe('');
+    await page.waitForFunction(() => location.hash.includes('doc=demo.md'));
+
+    // The resolved filter round-trips: checkbox → hash → reload.
+    await page.check('#comments-show-resolved');
+    await page.waitForFunction(() => location.hash.includes('resolved=1'));
+    await waitForText('#comments-list', 'is this note still valid'); // the resolved thread
+    await page.reload();
+    await page.waitForSelector('.cm-content');
+    expect(await page.isChecked('#comments-show-resolved')).toBe(true);
+    await waitForText('#comments-list', 'is this note still valid');
+
+    // Clicking a thread card focuses it and deep-links it.
+    await page.click('.comment-card');
+    await page.waitForFunction(() => location.hash.includes('comment=c-'));
+    await page.waitForSelector('.comment-card.focused');
+
+    // Hand-editing the hash navigates and applies view state.
+    await page.evaluate(() => {
+      location.hash = '#doc=other.md&preview=1';
+    });
+    await waitForText('#doc-title', 'other.md');
+    await page.waitForSelector('#preview:not([hidden])');
+
+    // An unknown document falls back to the first doc and normalizes the hash.
+    await page.goto(`${server.url}/#doc=does-not-exist.md`);
+    await page.waitForSelector('.cm-content');
+    await waitForText('#doc-title', 'demo.md');
+    await page.waitForFunction(() => location.hash.includes('doc=demo.md'));
+
+    // A stale comment id is ignored: page loads, nothing focused, no errors.
+    await page.goto(`${server.url}/#doc=demo.md&comment=c-deleted-long-ago`);
+    await page.waitForSelector('.cm-content');
+    expect(await page.locator('.comment-card.focused').count()).toBe(0);
+  },
+  30_000,
+);
+
+test(
   'first visit asks who you are, rejects "/", remembers the name, and logout forgets it',
   async () => {
     const context = await browser.newContext();

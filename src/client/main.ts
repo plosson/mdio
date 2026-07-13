@@ -4,9 +4,10 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { yCollab } from 'y-codemirror.next';
 import { remoteEditExtension, wireRemoteEdits } from './remote-edits';
-import { commentHighlightExtension, wireComments } from './comments';
-import { wirePreview } from './preview';
+import { commentHighlightExtension, focusThread, setShowResolved, wireComments } from './comments';
+import { setPreviewEnabled, wirePreview } from './preview';
 import { closeHistory, openHistory } from './history';
+import { onUrlChange, readUrlState, writeUrlState, type UrlState } from './url-state';
 import { TEXT_KEY, registerAuthor } from '../shared/blame';
 
 const PALETTE = [
@@ -122,7 +123,17 @@ function renderPresence(provider: WebsocketProvider) {
   }
 }
 
-function openDocument(path: string) {
+/**
+ * `urlMode` — how this navigation reaches the URL: 'push' (user action, new
+ * history entry, clears any focused comment), 'replace' (boot: normalize the
+ * hash, keep comment focus from the URL), 'none' (hashchange already has it).
+ */
+function openDocument(path: string, urlMode: 'push' | 'replace' | 'none' = 'push') {
+  if (urlMode === 'push') {
+    writeUrlState({ doc: path, comment: null }, { push: true });
+  } else if (urlMode === 'replace') {
+    writeUrlState({ doc: path });
+  }
   closeHistory();
   currentPath = path;
   if (current) {
@@ -164,8 +175,10 @@ function openDocument(path: string) {
     parent: editorHost,
   });
   const cleanupRemoteEdits = wireRemoteEdits(view, ytext, provider, doc.clientID);
-  const cleanupComments = wireComments(view, doc, user);
-  const cleanupPreview = wirePreview(ytext);
+  const cleanupComments = wireComments(view, doc, user, (state) =>
+    writeUrlState({ comment: state.comment, resolved: state.resolved }),
+  );
+  const cleanupPreview = wirePreview(ytext, (enabled) => writeUrlState({ preview: enabled }));
   const cleanup = () => {
     cleanupRemoteEdits();
     cleanupComments();
@@ -190,6 +203,12 @@ function renderMe() {
   });
 }
 
+function applyViewState(state: UrlState) {
+  setPreviewEnabled(state.preview);
+  setShowResolved(state.resolved);
+  focusThread(state.comment);
+}
+
 async function init() {
   const response = await fetch('/api/docs');
   const { docs } = (await response.json()) as { docs: string[] };
@@ -201,11 +220,36 @@ async function init() {
     item.addEventListener('click', () => openDocument(path));
     docList.appendChild(item);
   }
-  const requested = new URLSearchParams(location.search).get('doc');
+
+  // Legacy ?doc= links migrate into the hash, once.
+  const params = new URLSearchParams(location.search);
+  const legacy = params.get('doc');
+  if (legacy) {
+    params.delete('doc');
+    const query = params.toString();
+    history.replaceState(null, '', `${location.pathname}${query ? `?${query}` : ''}${location.hash}`);
+  }
+
+  const urlState = readUrlState();
+  const requested = urlState.doc ?? legacy;
   const initial = requested && docs.includes(requested) ? requested : docs[0];
   if (initial) {
-    openDocument(initial);
+    openDocument(initial, 'replace');
+    applyViewState(urlState);
   }
+
+  // Back/forward and hand-edited URLs. An unknown doc falls back to the first
+  // document and normalizes the hash, same as the boot path.
+  onUrlChange((state) => {
+    if (state.doc && state.doc !== currentPath) {
+      if (docs.includes(state.doc)) {
+        openDocument(state.doc, 'none');
+      } else if (docs[0]) {
+        openDocument(docs[0], 'replace');
+      }
+    }
+    applyViewState(state);
+  });
 }
 
 async function main() {
