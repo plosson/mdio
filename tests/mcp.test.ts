@@ -39,6 +39,7 @@ describe('sharemd MCP', () => {
       'place_cursor',
       'read_document',
       'replace_match',
+      'replace_text',
       'search_text',
     ]);
   });
@@ -169,12 +170,85 @@ describe('sharemd MCP', () => {
     const end = await agent.call<{ matches: Array<{ matchId: string }> }>('search_text', {
       query: 'END_MARK',
     });
-    const { deletedText } = await agent.call<{ deletedText: string }>('delete_range', {
+    const { deletedChars, deletedPreview } = await agent.call<{
+      deletedChars: number;
+      deletedPreview: string;
+    }>('delete_range', {
       startMatchId: start.matches[0]!.matchId,
       endMatchId: end.matches[0]!.matchId,
     });
-    expect(deletedText).toBe('START_MARK middle text END_MARK');
+    expect(deletedPreview).toBe('START_MARK middle text END_MARK');
+    expect(deletedChars).toBe(deletedPreview.length);
     await waitFor(() => !content().includes('START_MARK'), { label: 'range deleted' });
+  });
+
+  test('delete_range echoes only a preview of large deletions', async () => {
+    await agent.call('place_cursor', { boundary: 'end' });
+    await agent.call('insert_text', { text: `\nBIG_START ${'x'.repeat(500)} BIG_END\n` });
+    const start = await agent.call<{ matches: Array<{ matchId: string }> }>('search_text', {
+      query: 'BIG_START',
+    });
+    const end = await agent.call<{ matches: Array<{ matchId: string }> }>('search_text', {
+      query: 'BIG_END',
+    });
+    const { deletedChars, deletedPreview } = await agent.call<{
+      deletedChars: number;
+      deletedPreview: string;
+    }>('delete_range', {
+      startMatchId: start.matches[0]!.matchId,
+      endMatchId: end.matches[0]!.matchId,
+    });
+    expect(deletedChars).toBeGreaterThan(500);
+    expect(deletedPreview.length).toBeLessThan(200);
+    expect(deletedPreview).toStartWith('BIG_START');
+    expect(deletedPreview).toEndWith('BIG_END');
+    await waitFor(() => !content().includes('BIG_START'), { label: 'big range deleted' });
+  });
+
+  test('search_text matches literally, including trailing newlines', async () => {
+    await agent.call('place_cursor', { boundary: 'end' });
+    await agent.call('insert_text', { text: '\nTAIL_LINE\n\n\n' });
+    const { matches } = await agent.call<{ matches: Array<{ matchId: string; text: string }> }>(
+      'search_text',
+      { query: 'TAIL_LINE\n\n\n' },
+    );
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.text).toBe('TAIL_LINE\n\n\n');
+    // The whole point: trailing whitespace is now anchorable and editable.
+    await agent.call('replace_match', { matchId: matches[0]!.matchId, text: 'TAIL_LINE\n' });
+    await waitFor(() => content().endsWith('TAIL_LINE\n') && !content().endsWith('TAIL_LINE\n\n'), {
+      label: 'trailing newlines collapsed',
+    });
+  });
+
+  test('replace_text finds and replaces a unique occurrence in one call', async () => {
+    await agent.call('place_cursor', { boundary: 'end' });
+    await agent.call('insert_text', { text: '\nSWAP_ME alpha\n' });
+    const result = await agent.call<{ at: number; deletedChars: number; insertedChars: number }>(
+      'replace_text',
+      { query: 'SWAP_ME alpha', replacement: 'SWAP_ME beta' },
+    );
+    expect(result.deletedChars).toBe('SWAP_ME alpha'.length);
+    expect(result.insertedChars).toBe('SWAP_ME beta'.length);
+    await waitFor(() => content().includes('SWAP_ME beta'), { label: 'one-shot replace visible' });
+    expect(content()).not.toInclude('SWAP_ME alpha');
+  });
+
+  test('replace_text refuses missing or ambiguous text', async () => {
+    const missing = await agent.callExpectingError('replace_text', {
+      query: 'NOT_IN_THE_DOCUMENT',
+      replacement: 'anything',
+    });
+    expect(missing).toInclude('not found');
+
+    await agent.call('place_cursor', { boundary: 'end' });
+    await agent.call('insert_text', { text: '\nDUP_TOKEN one\nDUP_TOKEN two\n' });
+    const ambiguous = await agent.callExpectingError('replace_text', {
+      query: 'DUP_TOKEN',
+      replacement: 'nope',
+    });
+    expect(ambiguous).toInclude('occurs 2 times');
+    expect(ambiguous).toInclude('replace_match');
   });
 
   test('edits persist to the file on disk', async () => {

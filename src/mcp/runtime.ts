@@ -176,28 +176,28 @@ export class AgentRuntime {
     };
   }
 
+  /** Exact matching, whitespace and newlines included — trailing text is anchorable too. */
   searchText(query: string, maxResults = 8): MatchResult[] {
-    const trimmed = query.trim();
-    if (!trimmed) {
+    if (!query) {
       return [];
     }
     const content = this.text();
     const results: MatchResult[] = [];
     let fromIndex = 0;
     while (results.length < maxResults) {
-      const found = content.indexOf(trimmed, fromIndex);
+      const found = content.indexOf(query, fromIndex);
       if (found < 0) {
         break;
       }
       const id = `m${++this.matchSeq}`;
       this.matches.set(id, {
         id,
-        text: trimmed,
+        text: query,
         start: this.relativeAt(found, -1),
-        end: this.relativeAt(found + trimmed.length),
+        end: this.relativeAt(found + query.length),
       });
-      results.push({ matchId: id, text: trimmed, ...preview(content, found, trimmed.length) });
-      fromIndex = found + trimmed.length;
+      results.push({ matchId: id, text: query, ...preview(content, found, query.length) });
+      fromIndex = found + query.length;
     }
     return results;
   }
@@ -252,7 +252,40 @@ export class AgentRuntime {
     return { replaced: handle.text, insertedChars: text.length };
   }
 
-  deleteRange(startMatchId: string, endMatchId: string): { deletedChars: number; deletedText: string } {
+  /** One-shot search + replace: `query` must occur exactly once (no round-trip gap to race). */
+  replaceText(query: string, replacement: string): {
+    at: number;
+    deletedChars: number;
+    insertedChars: number;
+  } {
+    if (this.edit) {
+      throw new Error('An edit session is active — commit_edit/abort_edit first.');
+    }
+    const session = this.requireSession();
+    const content = this.text();
+    const shortQuery = query.length > 60 ? `${query.slice(0, 60)}…` : query;
+    const at = content.indexOf(query);
+    if (at < 0) {
+      throw new Error(`Text not found: "${shortQuery}".`);
+    }
+    let occurrences = 1;
+    for (let next = content.indexOf(query, at + 1); next >= 0; next = content.indexOf(query, next + 1)) {
+      occurrences++;
+    }
+    if (occurrences > 1) {
+      throw new Error(
+        `Text occurs ${occurrences} times: "${shortQuery}" — disambiguate with search_text + replace_match.`,
+      );
+    }
+    session.transact(() => {
+      session.ytext.delete(at, query.length);
+      session.ytext.insert(at, replacement);
+    });
+    this.placeCursorAtIndex(at + replacement.length);
+    return { at, deletedChars: query.length, insertedChars: replacement.length };
+  }
+
+  deleteRange(startMatchId: string, endMatchId: string): { deletedChars: number; deletedPreview: string } {
     if (this.edit) {
       throw new Error('An edit session is active — commit_edit/abort_edit first.');
     }
@@ -268,7 +301,10 @@ export class AgentRuntime {
     this.matches.delete(startMatchId);
     this.matches.delete(endMatchId);
     this.placeCursorAtIndex(from);
-    return { deletedChars: to - from, deletedText };
+    // Echo enough to confirm the right range died, not the whole payload.
+    const deletedPreview =
+      deletedText.length <= 200 ? deletedText : `${deletedText.slice(0, 150)} … ${deletedText.slice(-40)}`;
+    return { deletedChars: to - from, deletedPreview };
   }
 
   // ── stepwise edit sessions ───────────────────────────────────────────

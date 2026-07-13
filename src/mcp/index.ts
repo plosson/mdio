@@ -74,7 +74,7 @@ server.registerTool(
   'search_text',
   {
     description:
-      'Find exact text in the open document. Returns stable match handles (matchIds) that stay anchored to the found text even while others edit concurrently. Use handles with place_cursor, replace_match, and delete_range.',
+      'Find exact text in the open document — whitespace and newlines match literally, so trailing/blank-line text is anchorable. Returns stable match handles (matchIds) that stay anchored to the found text even while others edit concurrently. Use handles with place_cursor, replace_match, and delete_range.',
     inputSchema: {
       query: z.string().min(1),
       maxResults: z.number().int().min(1).max(20).optional(),
@@ -127,6 +127,16 @@ server.registerTool(
     inputSchema: { matchId: z.string().min(1), text: z.string() },
   },
   ({ matchId, text }) => respond(() => runtime.replaceMatch(matchId, text)),
+);
+
+server.registerTool(
+  'replace_text',
+  {
+    description:
+      'Find exact text and replace it in one call — no round-trip between search and replace, so nothing can move in between. The text must occur exactly once; if it is missing or ambiguous this fails and search_text + replace_match gives finer control. Whitespace and newlines match literally.',
+    inputSchema: { query: z.string().min(1), replacement: z.string() },
+  },
+  ({ query, replacement }) => respond(() => runtime.replaceText(query, replacement)),
 );
 
 server.registerTool(
