@@ -5,6 +5,7 @@ import { WebsocketProvider } from 'y-websocket';
 import { yCollab } from 'y-codemirror.next';
 import { remoteEditExtension, wireRemoteEdits } from './remote-edits';
 import { commentHighlightExtension, wireComments } from './comments';
+import { wirePreview } from './preview';
 import { closeHistory, openHistory } from './history';
 import { TEXT_KEY, registerAuthor } from '../shared/blame';
 
@@ -164,9 +165,11 @@ function openDocument(path: string) {
   });
   const cleanupRemoteEdits = wireRemoteEdits(view, ytext, provider, doc.clientID);
   const cleanupComments = wireComments(view, doc, user);
+  const cleanupPreview = wirePreview(ytext);
   const cleanup = () => {
     cleanupRemoteEdits();
     cleanupComments();
+    cleanupPreview();
   };
 
   current = { provider, view, doc, cleanup };

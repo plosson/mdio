@@ -23,6 +23,7 @@ async function buildClient(): Promise<string> {
   const result = await Bun.build({
     entrypoints: [join(CLIENT_DIR, 'main.ts')],
     target: 'browser',
+    minify: true,
   });
   if (!result.success) {
     throw new AggregateError(result.logs, 'Client bundle failed');

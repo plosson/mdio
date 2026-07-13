@@ -314,6 +314,45 @@ test(
 );
 
 test(
+  'markdown preview renders live, including mermaid diagrams (and survives invalid ones)',
+  async () => {
+    await page.click('#preview-toggle');
+    await page.waitForSelector('#preview:not([hidden])');
+    await page.waitForFunction(() =>
+      document.querySelector('#preview h1')?.textContent?.includes('Demo document'),
+    );
+
+    // An agent appends a mermaid diagram; the preview picks it up live.
+    await alice.call('begin_edit', { mode: 'append' });
+    await alice.call('append_text', {
+      text: '\n```mermaid\ngraph TD\n  Server --> Browser\n  Server --> Agent\n```\n',
+    });
+    await alice.call('commit_edit');
+    await page.waitForFunction(
+      () => document.querySelector('#preview pre.mermaid svg') !== null,
+      undefined,
+      { timeout: 15_000 },
+    );
+
+    // An invalid diagram is flagged in place without breaking the valid one.
+    await alice.call('begin_edit', { mode: 'append' });
+    await alice.call('append_text', { text: '\n```mermaid\nthis is !! not a diagram ??\n```\n' });
+    await alice.call('commit_edit');
+    await page.waitForFunction(
+      () => document.querySelector('#preview pre.mermaid.mermaid-error') !== null,
+      undefined,
+      { timeout: 15_000 },
+    );
+    expect(await page.locator('#preview pre.mermaid svg').count()).toBeGreaterThanOrEqual(1);
+
+    // Leave the pane off so later tests see the default layout.
+    await page.click('#preview-toggle');
+    await page.waitForSelector('#preview', { state: 'hidden' });
+  },
+  45_000,
+);
+
+test(
   'first visit asks who you are, rejects "/", remembers the name, and logout forgets it',
   async () => {
     const context = await browser.newContext();

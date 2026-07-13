@@ -306,6 +306,113 @@ body {
   min-width: 0;
 }
 
+#preview-toggle {
+  font-size: 11px;
+  padding: 3px 10px;
+  border: 1px solid #ccc;
+  border-radius: 10px;
+  background: #fff;
+  color: #666;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+#preview-toggle:hover {
+  background: #eee;
+  color: #333;
+}
+
+#preview-toggle.active {
+  background: #dbe9ff;
+  border-color: #2f7fd1;
+  color: #2f7fd1;
+}
+
+#preview {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  border-left: 1px solid #ddd;
+  padding: 16px 24px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+#preview[hidden] {
+  display: none;
+}
+
+#preview h1,
+#preview h2,
+#preview h3 {
+  margin: 0.8em 0 0.4em;
+  line-height: 1.3;
+}
+
+#preview p,
+#preview ul,
+#preview ol,
+#preview pre,
+#preview blockquote,
+#preview table {
+  margin: 0.5em 0;
+}
+
+#preview ul,
+#preview ol {
+  padding-left: 1.5em;
+}
+
+#preview code {
+  background: #f2f2f2;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+#preview pre {
+  background: #f7f7f7;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  padding: 10px 12px;
+  overflow-x: auto;
+}
+
+#preview pre code {
+  background: none;
+  padding: 0;
+}
+
+#preview blockquote {
+  border-left: 3px solid #ddd;
+  padding-left: 10px;
+  color: #666;
+}
+
+#preview table {
+  border-collapse: collapse;
+}
+
+#preview th,
+#preview td {
+  border: 1px solid #ddd;
+  padding: 4px 10px;
+}
+
+#preview pre.mermaid {
+  background: none;
+  border: none;
+  text-align: center;
+}
+
+#preview pre.mermaid.mermaid-error {
+  border: 1px dashed #c2352b;
+  color: #c2352b;
+  font-size: 12px;
+  text-align: left;
+}
+
 #comment-add {
   font-size: 11px;
   padding: 3px 10px;
