@@ -1,6 +1,16 @@
 import * as Y from 'yjs';
 import { DocumentSession, type AgentIdentity } from './session';
 import { blameLines, type BlameLine } from '../shared/blame';
+import {
+  addComment,
+  commentAuthor,
+  deleteComment,
+  editComment,
+  listThreads,
+  replyToComment,
+  setResolved,
+  type CommentThread,
+} from '../shared/comments';
 
 /**
  * Editing runtime for one agent. Match handles and the cursor are stored as Yjs
@@ -176,28 +186,28 @@ export class AgentRuntime {
     };
   }
 
+  /** Exact matching, whitespace and newlines included — trailing text is anchorable too. */
   searchText(query: string, maxResults = 8): MatchResult[] {
-    const trimmed = query.trim();
-    if (!trimmed) {
+    if (!query) {
       return [];
     }
     const content = this.text();
     const results: MatchResult[] = [];
     let fromIndex = 0;
     while (results.length < maxResults) {
-      const found = content.indexOf(trimmed, fromIndex);
+      const found = content.indexOf(query, fromIndex);
       if (found < 0) {
         break;
       }
       const id = `m${++this.matchSeq}`;
       this.matches.set(id, {
         id,
-        text: trimmed,
+        text: query,
         start: this.relativeAt(found, -1),
-        end: this.relativeAt(found + trimmed.length),
+        end: this.relativeAt(found + query.length),
       });
-      results.push({ matchId: id, text: trimmed, ...preview(content, found, trimmed.length) });
-      fromIndex = found + trimmed.length;
+      results.push({ matchId: id, text: query, ...preview(content, found, query.length) });
+      fromIndex = found + query.length;
     }
     return results;
   }
@@ -252,7 +262,40 @@ export class AgentRuntime {
     return { replaced: handle.text, insertedChars: text.length };
   }
 
-  deleteRange(startMatchId: string, endMatchId: string): { deletedChars: number; deletedText: string } {
+  /** One-shot search + replace: `query` must occur exactly once (no round-trip gap to race). */
+  replaceText(query: string, replacement: string): {
+    at: number;
+    deletedChars: number;
+    insertedChars: number;
+  } {
+    if (this.edit) {
+      throw new Error('An edit session is active — commit_edit/abort_edit first.');
+    }
+    const session = this.requireSession();
+    const content = this.text();
+    const shortQuery = query.length > 60 ? `${query.slice(0, 60)}…` : query;
+    const at = content.indexOf(query);
+    if (at < 0) {
+      throw new Error(`Text not found: "${shortQuery}".`);
+    }
+    let occurrences = 1;
+    for (let next = content.indexOf(query, at + 1); next >= 0; next = content.indexOf(query, next + 1)) {
+      occurrences++;
+    }
+    if (occurrences > 1) {
+      throw new Error(
+        `Text occurs ${occurrences} times: "${shortQuery}" — disambiguate with search_text + replace_match.`,
+      );
+    }
+    session.transact(() => {
+      session.ytext.delete(at, query.length);
+      session.ytext.insert(at, replacement);
+    });
+    this.placeCursorAtIndex(at + replacement.length);
+    return { at, deletedChars: query.length, insertedChars: replacement.length };
+  }
+
+  deleteRange(startMatchId: string, endMatchId: string): { deletedChars: number; deletedPreview: string } {
     if (this.edit) {
       throw new Error('An edit session is active — commit_edit/abort_edit first.');
     }
@@ -268,7 +311,87 @@ export class AgentRuntime {
     this.matches.delete(startMatchId);
     this.matches.delete(endMatchId);
     this.placeCursorAtIndex(from);
-    return { deletedChars: to - from, deletedText };
+    // Echo enough to confirm the right range died, not the whole payload.
+    const deletedPreview =
+      deletedText.length <= 200 ? deletedText : `${deletedText.slice(0, 150)} … ${deletedText.slice(-40)}`;
+    return { deletedChars: to - from, deletedPreview };
+  }
+
+  // ── comments ─────────────────────────────────────────────────────────
+
+  addComment(matchId: string, body: string): { commentId: string; quotedText: string } {
+    const session = this.requireSession();
+    const { from, to } = this.resolveMatch(matchId);
+    let commentId = '';
+    session.transact(() => {
+      commentId = addComment(session.doc, { author: this.identity.name, body, from, to });
+    });
+    return { commentId, quotedText: this.text().slice(from, to) };
+  }
+
+  listComments(input: { includeResolved?: boolean; mentioning?: string }): {
+    threads: Array<CommentThread & { currentText: string | null }>;
+  } {
+    const session = this.requireSession();
+    const content = this.text();
+    let threads = listThreads(session.doc);
+    if (input.includeResolved === false) {
+      threads = threads.filter((thread) => !thread.resolved);
+    }
+    if (input.mentioning) {
+      threads = threads.filter((thread) =>
+        [thread.root, ...thread.replies].some((comment) => comment.mentions.includes(input.mentioning!)),
+      );
+    }
+    return {
+      threads: threads.map((thread) => ({
+        ...thread,
+        currentText: thread.range ? content.slice(thread.range.from, thread.range.to) : null,
+      })),
+    };
+  }
+
+  replyComment(commentId: string, body: string): { commentId: string } {
+    const session = this.requireSession();
+    let replyId = '';
+    session.transact(() => {
+      replyId = replyToComment(session.doc, { author: this.identity.name, body, parentId: commentId });
+    });
+    return { commentId: replyId };
+  }
+
+  /** Edit and delete are author-only (convention-enforced, like all identity here). */
+  private requireOwn(commentId: string, verb: string): DocumentSession {
+    const session = this.requireSession();
+    const author = commentAuthor(session.doc, commentId);
+    if (author !== this.identity.name) {
+      throw new Error(`Only the author can ${verb} a comment — this one is by "${author}".`);
+    }
+    return session;
+  }
+
+  editComment(commentId: string, body: string): { commentId: string } {
+    const session = this.requireOwn(commentId, 'edit');
+    session.transact(() => {
+      editComment(session.doc, commentId, body);
+    });
+    return { commentId };
+  }
+
+  resolveComment(commentId: string, resolved: boolean): { commentId: string; resolved: boolean } {
+    const session = this.requireSession();
+    session.transact(() => {
+      setResolved(session.doc, commentId, resolved);
+    });
+    return { commentId, resolved };
+  }
+
+  deleteComment(commentId: string): { deleted: string } {
+    const session = this.requireOwn(commentId, 'delete');
+    session.transact(() => {
+      deleteComment(session.doc, commentId);
+    });
+    return { deleted: commentId };
   }
 
   // ── stepwise edit sessions ───────────────────────────────────────────

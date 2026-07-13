@@ -23,6 +23,7 @@ async function buildClient(): Promise<string> {
   const result = await Bun.build({
     entrypoints: [join(CLIENT_DIR, 'main.ts')],
     target: 'browser',
+    minify: true,
   });
   if (!result.success) {
     throw new AggregateError(result.logs, 'Client bundle failed');
@@ -64,6 +65,21 @@ export async function startServer({
           return undefined as unknown as Response;
         }
         return new Response('WebSocket upgrade required', { status: 426 });
+      }
+
+      if (url.pathname.startsWith('/api/history/')) {
+        const docPath = decodeURIComponent(url.pathname.slice('/api/history/'.length));
+        try {
+          const room = await registry.open(docPath);
+          await room.flushLog();
+          return new Response(await vault.readLog(docPath), {
+            headers: { 'Content-Type': 'application/x-ndjson; charset=utf-8' },
+          });
+        } catch (error) {
+          return new Response(error instanceof Error ? error.message : 'Invalid document', {
+            status: 400,
+          });
+        }
       }
 
       if (url.pathname.startsWith('/api/blame/')) {

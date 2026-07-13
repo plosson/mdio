@@ -74,7 +74,7 @@ server.registerTool(
   'search_text',
   {
     description:
-      'Find exact text in the open document. Returns stable match handles (matchIds) that stay anchored to the found text even while others edit concurrently. Use handles with place_cursor, replace_match, and delete_range.',
+      'Find exact text in the open document — whitespace and newlines match literally, so trailing/blank-line text is anchorable. Returns stable match handles (matchIds) that stay anchored to the found text even while others edit concurrently. Use handles with place_cursor, replace_match, and delete_range.',
     inputSchema: {
       query: z.string().min(1),
       maxResults: z.number().int().min(1).max(20).optional(),
@@ -130,6 +130,16 @@ server.registerTool(
 );
 
 server.registerTool(
+  'replace_text',
+  {
+    description:
+      'Find exact text and replace it in one call — no round-trip between search and replace, so nothing can move in between. The text must occur exactly once; if it is missing or ambiguous this fails and search_text + replace_match gives finer control. Whitespace and newlines match literally.',
+    inputSchema: { query: z.string().min(1), replacement: z.string() },
+  },
+  ({ query, replacement }) => respond(() => runtime.replaceText(query, replacement)),
+);
+
+server.registerTool(
   'delete_range',
   {
     description:
@@ -137,6 +147,66 @@ server.registerTool(
     inputSchema: { startMatchId: z.string().min(1), endMatchId: z.string().min(1) },
   },
   ({ startMatchId, endMatchId }) => respond(() => runtime.deleteRange(startMatchId, endMatchId)),
+);
+
+server.registerTool(
+  'add_comment',
+  {
+    description:
+      'Attach a comment thread to a text range, anchored via a search_text match handle. The anchor follows the text under concurrent edits; if the text is later deleted the thread survives as "orphaned" with its original quote. Mention peers with @name or @owner/agent in the body.',
+    inputSchema: { matchId: z.string().min(1), body: z.string().min(1) },
+  },
+  ({ matchId, body }) => respond(() => runtime.addComment(matchId, body)),
+);
+
+server.registerTool(
+  'list_comments',
+  {
+    description:
+      'List comment threads on the open document (root + replies, resolved state, quoted and current anchored text). Filter with includeResolved:false or mentioning:"name" (e.g. your own username to find comments addressed to you).',
+    inputSchema: {
+      includeResolved: z.boolean().optional(),
+      mentioning: z.string().optional(),
+    },
+  },
+  (input) => respond(() => runtime.listComments(input)),
+);
+
+server.registerTool(
+  'reply_comment',
+  {
+    description: 'Reply to a comment thread (commentId must be the thread root).',
+    inputSchema: { commentId: z.string().min(1), body: z.string().min(1) },
+  },
+  ({ commentId, body }) => respond(() => runtime.replyComment(commentId, body)),
+);
+
+server.registerTool(
+  'edit_comment',
+  {
+    description: 'Edit the body of a comment you authored.',
+    inputSchema: { commentId: z.string().min(1), body: z.string().min(1) },
+  },
+  ({ commentId, body }) => respond(() => runtime.editComment(commentId, body)),
+);
+
+server.registerTool(
+  'resolve_comment',
+  {
+    description:
+      'Resolve a comment thread (or reopen it with resolved:false). Anyone can resolve; commentId must be the thread root.',
+    inputSchema: { commentId: z.string().min(1), resolved: z.boolean().optional() },
+  },
+  ({ commentId, resolved }) => respond(() => runtime.resolveComment(commentId, resolved ?? true)),
+);
+
+server.registerTool(
+  'delete_comment',
+  {
+    description: 'Delete a comment you authored. Deleting a thread root deletes its replies too.',
+    inputSchema: { commentId: z.string().min(1) },
+  },
+  ({ commentId }) => respond(() => runtime.deleteComment(commentId)),
 );
 
 server.registerTool(

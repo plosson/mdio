@@ -24,21 +24,45 @@ afterAll(async () => {
 
 const content = () => observer.text.toString();
 
+/** Poll an async source until its value satisfies the predicate (peer sync races). */
+async function eventually<T>(
+  fn: () => Promise<T>,
+  predicate: (value: T) => boolean,
+  label: string,
+): Promise<T> {
+  let last: T | undefined;
+  for (let attempt = 0; attempt < 50; attempt++) {
+    last = await fn();
+    if (predicate(last)) {
+      return last;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Timed out waiting for ${label}; last value: ${JSON.stringify(last)}`);
+}
+
 describe('sharemd MCP', () => {
   test('exposes the agreed tool surface', async () => {
     expect(await agent.listTools()).toEqual([
       'abort_edit',
+      'add_comment',
       'append_text',
       'begin_edit',
       'blame_document',
       'commit_edit',
+      'delete_comment',
       'delete_range',
+      'edit_comment',
       'insert_text',
+      'list_comments',
       'list_documents',
       'open_document',
       'place_cursor',
       'read_document',
       'replace_match',
+      'replace_text',
+      'reply_comment',
+      'resolve_comment',
       'search_text',
     ]);
   });
@@ -169,12 +193,196 @@ describe('sharemd MCP', () => {
     const end = await agent.call<{ matches: Array<{ matchId: string }> }>('search_text', {
       query: 'END_MARK',
     });
-    const { deletedText } = await agent.call<{ deletedText: string }>('delete_range', {
+    const { deletedChars, deletedPreview } = await agent.call<{
+      deletedChars: number;
+      deletedPreview: string;
+    }>('delete_range', {
       startMatchId: start.matches[0]!.matchId,
       endMatchId: end.matches[0]!.matchId,
     });
-    expect(deletedText).toBe('START_MARK middle text END_MARK');
+    expect(deletedPreview).toBe('START_MARK middle text END_MARK');
+    expect(deletedChars).toBe(deletedPreview.length);
     await waitFor(() => !content().includes('START_MARK'), { label: 'range deleted' });
+  });
+
+  test('delete_range echoes only a preview of large deletions', async () => {
+    await agent.call('place_cursor', { boundary: 'end' });
+    await agent.call('insert_text', { text: `\nBIG_START ${'x'.repeat(500)} BIG_END\n` });
+    const start = await agent.call<{ matches: Array<{ matchId: string }> }>('search_text', {
+      query: 'BIG_START',
+    });
+    const end = await agent.call<{ matches: Array<{ matchId: string }> }>('search_text', {
+      query: 'BIG_END',
+    });
+    const { deletedChars, deletedPreview } = await agent.call<{
+      deletedChars: number;
+      deletedPreview: string;
+    }>('delete_range', {
+      startMatchId: start.matches[0]!.matchId,
+      endMatchId: end.matches[0]!.matchId,
+    });
+    expect(deletedChars).toBeGreaterThan(500);
+    expect(deletedPreview.length).toBeLessThan(200);
+    expect(deletedPreview).toStartWith('BIG_START');
+    expect(deletedPreview).toEndWith('BIG_END');
+    await waitFor(() => !content().includes('BIG_START'), { label: 'big range deleted' });
+  });
+
+  test('search_text matches literally, including trailing newlines', async () => {
+    await agent.call('place_cursor', { boundary: 'end' });
+    await agent.call('insert_text', { text: '\nTAIL_LINE\n\n\n' });
+    const { matches } = await agent.call<{ matches: Array<{ matchId: string; text: string }> }>(
+      'search_text',
+      { query: 'TAIL_LINE\n\n\n' },
+    );
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.text).toBe('TAIL_LINE\n\n\n');
+    // The whole point: trailing whitespace is now anchorable and editable.
+    await agent.call('replace_match', { matchId: matches[0]!.matchId, text: 'TAIL_LINE\n' });
+    await waitFor(() => content().endsWith('TAIL_LINE\n') && !content().endsWith('TAIL_LINE\n\n'), {
+      label: 'trailing newlines collapsed',
+    });
+  });
+
+  test('replace_text finds and replaces a unique occurrence in one call', async () => {
+    await agent.call('place_cursor', { boundary: 'end' });
+    await agent.call('insert_text', { text: '\nSWAP_ME alpha\n' });
+    const result = await agent.call<{ at: number; deletedChars: number; insertedChars: number }>(
+      'replace_text',
+      { query: 'SWAP_ME alpha', replacement: 'SWAP_ME beta' },
+    );
+    expect(result.deletedChars).toBe('SWAP_ME alpha'.length);
+    expect(result.insertedChars).toBe('SWAP_ME beta'.length);
+    await waitFor(() => content().includes('SWAP_ME beta'), { label: 'one-shot replace visible' });
+    expect(content()).not.toInclude('SWAP_ME alpha');
+  });
+
+  test('replace_text refuses missing or ambiguous text', async () => {
+    const missing = await agent.callExpectingError('replace_text', {
+      query: 'NOT_IN_THE_DOCUMENT',
+      replacement: 'anything',
+    });
+    expect(missing).toInclude('not found');
+
+    await agent.call('place_cursor', { boundary: 'end' });
+    await agent.call('insert_text', { text: '\nDUP_TOKEN one\nDUP_TOKEN two\n' });
+    const ambiguous = await agent.callExpectingError('replace_text', {
+      query: 'DUP_TOKEN',
+      replacement: 'nope',
+    });
+    expect(ambiguous).toInclude('occurs 2 times');
+    expect(ambiguous).toInclude('replace_match');
+  });
+
+  test('comment lifecycle: add, mention, reply, edit, resolve, author-only guards, delete', async () => {
+    const bob = await AgentClient.spawn(server.url, 'plosson/bob');
+    try {
+      await bob.call('open_document', { path: 'demo.md' });
+      await agent.call('place_cursor', { boundary: 'end' });
+      await agent.call('insert_text', { text: '\nCOMMENT_TARGET zone here\n' });
+
+      // Alice comments on her zone, mentioning bob.
+      const { matches } = await agent.call<{ matches: Array<{ matchId: string }> }>('search_text', {
+        query: 'COMMENT_TARGET zone',
+      });
+      const { commentId, quotedText } = await agent.call<{ commentId: string; quotedText: string }>(
+        'add_comment',
+        { matchId: matches[0]!.matchId, body: 'is this zone right, @plosson/bob?' },
+      );
+      expect(quotedText).toBe('COMMENT_TARGET zone');
+
+      // Bob sees it when filtering for threads mentioning him, and replies.
+      await eventually(
+        () => bob.call<{ threads: Array<{ root: { id: string } }> }>('list_comments', {
+          mentioning: 'plosson/bob',
+        }),
+        ({ threads }) => threads.some((thread) => thread.root.id === commentId),
+        'comment to sync to bob',
+      );
+      await bob.call('reply_comment', { commentId, body: 'looks good @plosson/alice' });
+
+      // Author-only: bob cannot edit or delete alice's root.
+      expect(await bob.callExpectingError('edit_comment', { commentId, body: 'hijack' })).toInclude(
+        'Only the author',
+      );
+      expect(await bob.callExpectingError('delete_comment', { commentId })).toInclude('Only the author');
+
+      // Alice edits her comment; bob resolves the thread (anyone can).
+      await agent.call('edit_comment', { commentId, body: 'zone confirmed' });
+      await bob.call('resolve_comment', { commentId });
+
+      const { threads } = await eventually(
+        () =>
+          agent.call<{
+            threads: Array<{
+              root: { id: string; body: string };
+              replies: Array<{ author: string }>;
+              resolved: boolean;
+              currentText: string | null;
+            }>;
+          }>('list_comments', {}),
+        (result) => {
+          const candidate = result.threads.find((entry) => entry.root.id === commentId);
+          return candidate?.resolved === true && candidate.replies.length === 1;
+        },
+        "bob's reply and resolve to sync to alice",
+      );
+      const thread = threads.find((candidate) => candidate.root.id === commentId)!;
+      expect(thread.root.body).toBe('zone confirmed');
+      expect(thread.replies.map((reply) => reply.author)).toEqual(['plosson/bob']);
+      expect(thread.resolved).toBe(true);
+      expect(thread.currentText).toBe('COMMENT_TARGET zone');
+
+      // Resolved threads are hidden by the filter, and delete cascades.
+      const open = await agent.call<{ threads: Array<{ root: { id: string } }> }>('list_comments', {
+        includeResolved: false,
+      });
+      expect(open.threads.map((candidate) => candidate.root.id)).not.toContain(commentId);
+      await agent.call('delete_comment', { commentId });
+      const after = await agent.call<{ threads: Array<{ root: { id: string } }> }>('list_comments', {});
+      expect(after.threads.map((candidate) => candidate.root.id)).not.toContain(commentId);
+    } finally {
+      await bob.close();
+    }
+  });
+
+  test('comment anchors survive edits by other peers', async () => {
+    await agent.call('place_cursor', { boundary: 'end' });
+    await agent.call('insert_text', { text: '\nANCHORED_COMMENT_ZONE\n' });
+    const { matches } = await agent.call<{ matches: Array<{ matchId: string }> }>('search_text', {
+      query: 'ANCHORED_COMMENT_ZONE',
+    });
+    const { commentId } = await agent.call<{ commentId: string }>('add_comment', {
+      matchId: matches[0]!.matchId,
+      body: 'hold on tight',
+    });
+
+    observer.text.insert(0, 'SHIFT EVERYTHING DOWN\n');
+    await waitFor(() => content().startsWith('SHIFT EVERYTHING DOWN'), { label: 'shift synced' });
+
+    const { threads } = await agent.call<{
+      threads: Array<{ root: { id: string }; currentText: string | null }>;
+    }>('list_comments', {});
+    const thread = threads.find((candidate) => candidate.root.id === commentId)!;
+    expect(thread.currentText).toBe('ANCHORED_COMMENT_ZONE');
+
+    // Deleting the zone orphans the thread but keeps it listed with its quote.
+    const zoneStart = content().indexOf('ANCHORED_COMMENT_ZONE');
+    observer.text.delete(zoneStart, 'ANCHORED_COMMENT_ZONE'.length);
+    await waitFor(() => !content().includes('ANCHORED_COMMENT_ZONE'), { label: 'zone deleted' });
+
+    const orphaned = await eventually(
+      () =>
+        agent.call<{
+          threads: Array<{ root: { id: string }; currentText: string | null; quotedText: string }>;
+        }>('list_comments', {}),
+      (result) =>
+        result.threads.find((candidate) => candidate.root.id === commentId)?.currentText === null,
+      'deletion to sync to the agent',
+    );
+    const orphan = orphaned.threads.find((candidate) => candidate.root.id === commentId)!;
+    expect(orphan.currentText).toBeNull();
+    expect(orphan.quotedText).toBe('ANCHORED_COMMENT_ZONE');
   });
 
   test('edits persist to the file on disk', async () => {
