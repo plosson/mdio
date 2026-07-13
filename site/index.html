@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>mdio — humans and agents editing the same markdown, live</title>
-  <meta name="description" content="Turn a folder of markdown into live collaborative documents. Humans get a web editor, AI agents join over MCP — same doc, named cursors, no lost edits.">
-  <meta property="og:title" content="mdio — humans and agents editing the same markdown, live">
-  <meta property="og:description" content="Turn a folder of markdown into live collaborative documents. Humans get a web editor, AI agents join over MCP — same doc, named cursors, no lost edits.">
+  <title>mdio — a home for the documents that are bigger than one repo</title>
+  <meta name="description" content="Specs, briefs and architecture notes that span projects get a home of their own: live collaborative markdown that humans and AI agents read, review and edit together.">
+  <meta property="og:title" content="mdio — a home for the documents that are bigger than one repo">
+  <meta property="og:description" content="Specs, briefs and architecture notes that span projects get a home of their own: live collaborative markdown that humans and AI agents read, review and edit together.">
   <meta property="og:url" content="https://mdio.houlahop.com">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -72,8 +72,8 @@
 
     <section class="hh-page-hero">
       <span class="hh-card__project">mdio</span>
-      <h1>Your agent edits the same markdown you do — live, cursor and all.</h1>
-      <p class="hh-page-hero__summary">A folder of markdown becomes collaborative documents. Humans get a web editor, agents join over MCP as named peers — same doc, visible cursors, no lost edits.</p>
+      <h1>A home for the documents that are bigger than one repo.</h1>
+      <p class="hh-page-hero__summary">Specs, briefs and architecture notes that span projects live in a shared vault of markdown — humans read and review in a web editor, agents join over MCP. Same document, live, for everyone.</p>
     </section>
 
     <div class="hh-term">
@@ -99,14 +99,14 @@
     <section class="hh-section">
       <span class="hh-section__label">02</span>
       <h2>The problem</h2>
-      <p>I kept writing documents <em>with</em> my agent the wrong way. It edits the file while I have it open; whoever saves last wins. I can't see what it's doing until it's done, it can't see what I just changed, and "collaborating" means taking turns on a file and diffing afterwards.</p>
-      <p>Files were never meant to be a shared workspace. There's no presence, no authorship, no way to point at a paragraph and say "fix this" — for me or for the agent.</p>
+      <p>One GitHub repo is one project — that's the deal. But my most important documents don't respect that boundary: product briefs, architecture notes, specs and decisions that cover several projects at once. Committed to one repo, they're invisible from the others. Copied into each, they drift apart. Parked in a wiki or a Google Doc, my agents can't work with them at all.</p>
+      <p>And these are exactly the documents that deserve to be <em>really</em> read and reviewed — questioned, annotated and kept current by the humans and agents who work from them. A plain file sitting in a git repo gets none of that.</p>
     </section>
 
     <section class="hh-section">
       <span class="hh-section__label">03</span>
       <h2>The solution</h2>
-      <p>mdio serves a folder of markdown as live collaborative documents over CRDTs. I write in a web editor with live cursors; agents connect over MCP as first-class peers — named presence, a visible cursor, and edits anchored to positions that survive concurrent changes, so nothing clobbers anything.</p>
+      <p>mdio gives those documents a home of their own: a vault of markdown, served as live collaborative documents over CRDTs. Humans read and review in a web editor with live cursors; agents — from whichever project they're working in — connect over MCP as first-class peers, with named presence, a visible cursor, and edits anchored to positions that survive concurrent changes.</p>
       <p>The files stay plain markdown on disk. Authorship, comment threads and edit history ride alongside in sidecars — line-level blame tells you which words the human wrote and which the agent did, and a replay slider shows how the document got there.</p>
     </section>
 
@@ -115,10 +115,10 @@
       <h2>When to use it</h2>
       <p>Use mdio when you and your agents need to:</p>
       <ul>
+        <li>Keep foundational documents — briefs, specs, architecture, decisions — in one vault that agents from every project can reach</li>
+        <li>Have an agent review a spec by leaving comments instead of rewriting it</li>
         <li>Draft a document together and watch the agent write, in real time</li>
-        <li>Have an agent review a doc by leaving comments instead of rewriting it</li>
         <li>Leave a comment mentioning the agent and have it pick the thread up</li>
-        <li>Let several agents write into the same document without merge conflicts</li>
         <li>Keep authorship visible — who wrote which line, human or agent</li>
       </ul>
     </section>
@@ -166,9 +166,9 @@
 
     window.hhTerminalFrames = [
       {
-        cmd: "bun run start ./docs",
+        cmd: "bun run start ./foundation-docs",
         output: [
-          "mdio serving ./docs",
+          "mdio serving ./foundation-docs",
           "Web UI:  http://localhost:4321",
         ],
       },
@@ -187,9 +187,9 @@
         ],
       },
       {
-        cmd: 'claude "review docs/plan.md and comment on anything unclear"',
+        cmd: 'claude "review architecture.md and comment on anything unclear"',
         output: [
-          "⏺ open_document docs/plan.md — joined as plosson/claude",
+          "⏺ open_document architecture.md — joined as plosson/claude",
           '⏺ add_comment "Rollout" — the two-week estimate ignores the data migration',
           "✔ 3 comments left — they appear live in the web editor",
         ],
