@@ -11,7 +11,7 @@ export const MESSAGE_AWARENESS = 1;
 export const MESSAGE_QUERY_AWARENESS = 3;
 
 export { TEXT_KEY };
-const HYDRATE_ORIGIN = 'sharemd-hydrate';
+const HYDRATE_ORIGIN = 'mdio-hydrate';
 const DISK_AUTHOR = { name: 'disk', role: 'system' as const };
 
 export interface RoomSocket {
@@ -119,7 +119,7 @@ export class Room {
         Y.applyUpdate(room.doc, state, HYDRATE_ORIGIN);
         hydratedFromState = true;
       } catch (error) {
-        console.error(`sharemd: unreadable state sidecar for "${name}", rebuilding from markdown:`, error);
+        console.error(`mdio: unreadable state sidecar for "${name}", rebuilding from markdown:`, error);
       }
     }
 
@@ -157,7 +157,7 @@ export class Room {
     this.logChain = this.logChain
       .then(() => this.vault.appendLog(this.name, Date.now(), update))
       .catch((error) => {
-        console.error(`sharemd: failed to append history log for "${this.name}":`, error);
+        console.error(`mdio: failed to append history log for "${this.name}":`, error);
       });
   }
 

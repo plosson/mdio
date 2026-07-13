@@ -2,8 +2,8 @@ import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 // Bun inlines the canonical skill into the compiled binary, so an installed
-// `sharemd` carries the skill matching its own tool surface — no repo needed.
-import SKILL_MD from '../../skills/sharemd/SKILL.md' with { type: 'text' };
+// `mdio` carries the skill matching its own tool surface — no repo needed.
+import SKILL_MD from '../../skills/mdio/SKILL.md' with { type: 'text' };
 
 export type InstallScope = 'project' | 'user';
 
@@ -12,10 +12,10 @@ export interface SkillInstallResult {
   action: 'created' | 'updated' | 'unchanged';
 }
 
-/** Where the skill lands: `.claude/skills/sharemd/SKILL.md` under cwd or $HOME. */
+/** Where the skill lands: `.claude/skills/mdio/SKILL.md` under cwd or $HOME. */
 export function skillInstallPath(scope: InstallScope, cwd = process.cwd(), home = homedir()): string {
   const base = scope === 'user' ? home : cwd;
-  return join(base, '.claude', 'skills', 'sharemd', 'SKILL.md');
+  return join(base, '.claude', 'skills', 'mdio', 'SKILL.md');
 }
 
 export async function installSkill(

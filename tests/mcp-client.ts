@@ -21,8 +21,8 @@ export class AgentClient {
       args: launch?.args ?? ['run', join(PROJECT_ROOT, 'src', 'mcp', 'index.ts')],
       env: {
         ...getDefaultEnvironment(),
-        SHAREMD_SERVER: serverUrl,
-        SHAREMD_USERNAME: name,
+        MDIO_SERVER: serverUrl,
+        MDIO_USERNAME: name,
       },
       stderr: 'pipe',
     });

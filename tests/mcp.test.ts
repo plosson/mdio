@@ -2,10 +2,10 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
 import { connectPeer, startTestServer, waitFor, type TestPeer } from './helpers';
 import { parseUsername, resolveIdentity } from '../src/mcp/identity';
-import type { ShareMdServer } from '../src/server/index';
+import type { MdioServer } from '../src/server/index';
 import { AgentClient } from './mcp-client';
 
-let server: ShareMdServer;
+let server: MdioServer;
 let vaultDir: string;
 let agent: AgentClient;
 let observer: TestPeer;
@@ -41,7 +41,7 @@ async function eventually<T>(
   throw new Error(`Timed out waiting for ${label}; last value: ${JSON.stringify(last)}`);
 }
 
-describe('sharemd MCP', () => {
+describe('mdio MCP', () => {
   test('exposes the agreed tool surface', async () => {
     expect(await agent.listTools()).toEqual([
       'abort_edit',
@@ -423,23 +423,23 @@ describe('username convention', () => {
     }
   });
 
-  test('resolveIdentity requires SHAREMD_USERNAME and derives role + color', () => {
-    expect(() => resolveIdentity({})).toThrow('SHAREMD_USERNAME is required');
-    const identity = resolveIdentity({ SHAREMD_USERNAME: 'plosson/claude' });
+  test('resolveIdentity requires MDIO_USERNAME and derives role + color', () => {
+    expect(() => resolveIdentity({})).toThrow('MDIO_USERNAME is required');
+    const identity = resolveIdentity({ MDIO_USERNAME: 'plosson/claude' });
     expect(identity.role).toBe('agent');
     expect(identity.color).toMatch(/^#[0-9a-f]{6}$/);
     expect(identity.colorLight).toBe(`${identity.color}33`);
-    expect(resolveIdentity({ SHAREMD_USERNAME: 'plosson' }).role).toBe('human');
+    expect(resolveIdentity({ MDIO_USERNAME: 'plosson' }).role).toBe('human');
   });
 
-  test('a lingering legacy SHAREMD_AGENT_NAME gets a migration hint', () => {
-    expect(() => resolveIdentity({ SHAREMD_AGENT_NAME: 'Claude' })).toThrow(
-      /SHAREMD_AGENT_NAME was replaced by SHAREMD_USERNAME/,
+  test('a lingering legacy MDIO_AGENT_NAME gets a migration hint', () => {
+    expect(() => resolveIdentity({ MDIO_AGENT_NAME: 'Claude' })).toThrow(
+      /MDIO_AGENT_NAME was replaced by MDIO_USERNAME/,
     );
   });
 
-  test('SHAREMD_AGENT_COLOR overrides the derived color', () => {
-    const identity = resolveIdentity({ SHAREMD_USERNAME: 'plosson/claude', SHAREMD_AGENT_COLOR: '#123456' });
+  test('MDIO_AGENT_COLOR overrides the derived color', () => {
+    const identity = resolveIdentity({ MDIO_USERNAME: 'plosson/claude', MDIO_AGENT_COLOR: '#123456' });
     expect(identity.color).toBe('#123456');
   });
 });

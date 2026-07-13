@@ -1,21 +1,21 @@
 ---
-name: sharemd
-description: Collaborate on shared markdown documents through the sharemd MCP tools (list_documents, open_document, search_text, begin_edit, comments). Use when reading, writing, reviewing, or commenting on documents in a shared sharemd vault or workspace, when responding to @mentions or comment threads, or when asked who wrote something in a shared document.
+name: mdio
+description: Collaborate on shared markdown documents through the mdio MCP tools (list_documents, open_document, search_text, begin_edit, comments). Use when reading, writing, reviewing, or commenting on documents in a shared mdio vault or workspace, when responding to @mentions or comment threads, or when asked who wrote something in a shared document.
 ---
 
-# Collaborating on sharemd documents
+# Collaborating on mdio documents
 
-sharemd documents are live collaborative markdown files backed by a CRDT. You join as a
+mdio documents are live collaborative markdown files backed by a CRDT. You join as a
 named peer: humans in a browser see your name, cursor, and edits in real time — and they
 may be editing at the same time. Edits merge automatically; there are no locks and no
 conflicts, so never wait for or ask permission before editing.
 
 ## The one hard rule
 
-**Never touch vault files on disk.** If a document lives in a sharemd vault, do not use
-file tools (Read/Edit/Write, `cat`, `sed`, …) on it — the sharemd server is the sole
+**Never touch vault files on disk.** If a document lives in a mdio vault, do not use
+file tools (Read/Edit/Write, `cat`, `sed`, …) on it — the mdio server is the sole
 writer of vault files, there is no file watcher, and disk edits made while the server
-runs are silently lost or diverge. Always go through the sharemd MCP tools.
+runs are silently lost or diverge. Always go through the mdio MCP tools.
 
 ## Ground rules
 

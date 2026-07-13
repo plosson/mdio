@@ -2,10 +2,10 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { join } from 'node:path';
 import { chromium, type Browser, type Page } from 'playwright';
 import { connectPeer, startTestServer } from './helpers';
-import type { ShareMdServer } from '../src/server/index';
+import type { MdioServer } from '../src/server/index';
 import { AgentClient } from './mcp-client';
 
-let server: ShareMdServer;
+let server: MdioServer;
 let vaultDir: string;
 let browser: Browser;
 let page: Page;
@@ -115,16 +115,16 @@ test(
       // Badge with the author's name shows up on the inserted range…
       await page.waitForFunction(
         () =>
-          [...document.querySelectorAll('.sharemd-edit-badge')].some((el) =>
+          [...document.querySelectorAll('.mdio-edit-badge')].some((el) =>
             el.textContent?.includes('Carol'),
-          ) && document.querySelectorAll('.sharemd-remote-edit').length > 0,
+          ) && document.querySelectorAll('.mdio-remote-edit').length > 0,
         undefined,
         { timeout: 5000 },
       );
 
       // …and the highlight is transient: gone shortly after.
       await page.waitForFunction(
-        () => document.querySelectorAll('.sharemd-edit-badge').length === 0,
+        () => document.querySelectorAll('.mdio-edit-badge').length === 0,
         undefined,
         { timeout: 6000 },
       );
@@ -185,8 +185,8 @@ test(
   async () => {
     // Human selects "First note" and opens a comment thread on it.
     await page.evaluate(() => {
-      const view = (globalThis as unknown as { sharemdView: { state: any; dispatch: any } })
-        .sharemdView;
+      const view = (globalThis as unknown as { mdioView: { state: any; dispatch: any } })
+        .mdioView;
       const at = view.state.doc.toString().indexOf('First note');
       view.dispatch({ selection: { anchor: at, head: at + 'First note'.length } });
     });
@@ -196,7 +196,7 @@ test(
       'HUMAN: is this note still valid, @plosson/alice?',
     );
     await page.click('#comments-list .comment-btn.primary');
-    await page.waitForSelector('.sharemd-comment'); // range highlighted in the editor
+    await page.waitForSelector('.mdio-comment'); // range highlighted in the editor
     await waitForText('#comments-list', 'is this note still valid');
 
     // The agent finds the thread by mention, replies, then resolves it.
@@ -220,7 +220,7 @@ test(
     await alice.call('resolve_comment', { commentId: rootId });
     // Resolved: highlight gone, thread hidden behind the "show resolved" filter.
     await page.waitForFunction(
-      () => document.querySelectorAll('.sharemd-comment').length === 0,
+      () => document.querySelectorAll('.mdio-comment').length === 0,
       undefined,
       { timeout: 5000 },
     );
@@ -238,8 +238,8 @@ test(
     const selectInEditor = (needle: string, collapse = false) =>
       page.evaluate(
         ({ text, empty }) => {
-          const view = (globalThis as unknown as { sharemdView: { state: any; dispatch: any } })
-            .sharemdView;
+          const view = (globalThis as unknown as { mdioView: { state: any; dispatch: any } })
+            .mdioView;
           const at = view.state.doc.toString().indexOf(text);
           view.dispatch({ selection: { anchor: at, head: empty ? at : at + text.length } });
         },
@@ -285,7 +285,7 @@ test(
     await waitForText('#comments-list', '(edited)');
 
     // Clicking the highlight in the editor focuses the thread card.
-    await page.click('.sharemd-comment');
+    await page.click('.mdio-comment');
     await page.waitForSelector('.comment-card.focused');
     expect(await page.textContent('.comment-card.focused')).toInclude('polish DONE');
 
@@ -295,7 +295,7 @@ test(
       replacement: 'ALICE: rewritten paragraph.',
     });
     await waitForText('#comments-list', '(original text deleted)');
-    await page.waitForFunction(() => document.querySelectorAll('.sharemd-comment').length === 0);
+    await page.waitForFunction(() => document.querySelectorAll('.mdio-comment').length === 0);
 
     // Delete the reply, then the root — thread disappears entirely.
     const deleteButtons = page.locator(
@@ -368,8 +368,8 @@ test(
 
     // Creating a comment focuses it and deep-links it in the hash.
     await page.evaluate(() => {
-      const view = (globalThis as unknown as { sharemdView: { state: any; dispatch: any } })
-        .sharemdView;
+      const view = (globalThis as unknown as { mdioView: { state: any; dispatch: any } })
+        .mdioView;
       const at = view.state.doc.toString().indexOf('Other');
       view.dispatch({ selection: { anchor: at, head: at + 'Other'.length } });
     });
@@ -459,7 +459,7 @@ test(
       await visitor.waitForSelector('#login', { state: 'hidden' });
       await visitor.waitForSelector('#me:not([hidden])');
       expect(await visitor.textContent('#me-name')).toBe('Dana');
-      expect(await visitor.evaluate(() => localStorage.getItem('sharemd-name'))).toBe('Dana');
+      expect(await visitor.evaluate(() => localStorage.getItem('mdio-name'))).toBe('Dana');
       await visitor.waitForSelector('.cm-content'); // the editor loads only after login
 
       // Reload skips the prompt.
@@ -470,7 +470,7 @@ test(
       // Logout clears the stored name and asks again.
       await visitor.click('#logout');
       await visitor.waitForSelector('#login-form', { state: 'visible' });
-      expect(await visitor.evaluate(() => localStorage.getItem('sharemd-name'))).toBeNull();
+      expect(await visitor.evaluate(() => localStorage.getItem('mdio-name'))).toBeNull();
     } finally {
       await context.close();
     }

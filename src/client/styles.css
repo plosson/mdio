@@ -640,13 +640,13 @@ body {
   background: #dbe9ff;
 }
 
-.sharemd-comment {
+.mdio-comment {
   background: #f8d47740;
   border-bottom: 2px solid #e0a82e88;
   cursor: pointer;
 }
 
-.sharemd-comment-focused {
+.mdio-comment-focused {
   background: #f8d47788;
   border-bottom-color: #e0a82e;
 }
@@ -662,23 +662,23 @@ body {
   line-height: 1.6;
 }
 
-.sharemd-remote-edit {
-  background-color: var(--sharemd-edit-bg, #88888833);
+.mdio-remote-edit {
+  background-color: var(--mdio-edit-bg, #88888833);
   border-radius: 2px;
-  animation: sharemd-edit-fade 2s ease-out forwards;
+  animation: mdio-edit-fade 2s ease-out forwards;
 }
 
-@keyframes sharemd-edit-fade {
+@keyframes mdio-edit-fade {
   0%,
   55% {
-    background-color: var(--sharemd-edit-bg, #88888833);
+    background-color: var(--mdio-edit-bg, #88888833);
   }
   100% {
     background-color: transparent;
   }
 }
 
-.sharemd-edit-badge {
+.mdio-edit-badge {
   display: inline-block;
   font-size: 9px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -692,10 +692,10 @@ body {
   white-space: nowrap;
   user-select: none;
   pointer-events: none;
-  animation: sharemd-edit-fade-badge 2s ease-out forwards;
+  animation: mdio-edit-fade-badge 2s ease-out forwards;
 }
 
-@keyframes sharemd-edit-fade-badge {
+@keyframes mdio-edit-fade-badge {
   0%,
   70% {
     opacity: 1;

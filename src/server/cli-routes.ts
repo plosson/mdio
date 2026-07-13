@@ -1,15 +1,15 @@
 // CLI distribution: the server ships its own client binaries. `GET /install.sh`
 // (and /install.ps1) are rendered from the calling server's public origin, so
-// `curl -fsSL <server>/install.sh | sh` installs a `sharemd` binary that knows
+// `curl -fsSL <server>/install.sh | sh` installs a `mdio` binary that knows
 // which server it came from; `/api/cli/*` serves the manifest, the version, and
 // the binaries baked into the image by scripts/build-cli.ts. Everything is
 // driven by the CLI_PLATFORMS registry — one new entry ships a new platform.
 import pkg from '../../package.json';
 import { CLI_PLATFORMS, cliBinaryPath, cliManifest, cliPlatform } from '../cli/platforms';
 
-/** The `sharemd` binary filename for unix platforms (all share it). */
+/** The `mdio` binary filename for unix platforms (all share it). */
 function unixBinaryName(): string {
-  return CLI_PLATFORMS.find((platform) => platform.os === 'unix')?.saveAs ?? 'sharemd';
+  return CLI_PLATFORMS.find((platform) => platform.os === 'unix')?.saveAs ?? 'mdio';
 }
 
 /** Space-separated `os-arch` ids this build ships unix binaries for. */
@@ -27,26 +27,26 @@ function windowsPlatform(): { id: string; saveAs: string } | undefined {
 
 /**
  * POSIX `sh` installer/updater for Linux/macOS. Detects the platform, downloads
- * the matching binary from `base` into `$SHAREMD_INSTALL_DIR` (default
- * `~/.local/bin`, no sudo), and wires PATH. When run with `SHAREMD_UPDATE=1`
- * (by `sharemd update`) it instead version-checks against the server and, if
- * different, atomically replaces the running binary at `$SHAREMD_CURRENT_BIN`.
+ * the matching binary from `base` into `$MDIO_INSTALL_DIR` (default
+ * `~/.local/bin`, no sudo), and wires PATH. When run with `MDIO_UPDATE=1`
+ * (by `mdio update`) it instead version-checks against the server and, if
+ * different, atomically replaces the running binary at `$MDIO_CURRENT_BIN`.
  */
 export function renderInstallSh(base: string): string {
   const bin = unixBinaryName();
   return `#!/bin/sh
-# sharemd installer/updater.
-# Install:  curl -fsSL ${base}/install.sh | sh   (or | SHAREMD_INSTALL_DIR=~/bin sh)
-# Update:   handled by 'sharemd update' (re-runs this with SHAREMD_UPDATE=1).
+# mdio installer/updater.
+# Install:  curl -fsSL ${base}/install.sh | sh   (or | MDIO_INSTALL_DIR=~/bin sh)
+# Update:   handled by 'mdio update' (re-runs this with MDIO_UPDATE=1).
 set -eu
 
 BASE="${base}"
 BIN="${bin}"
 SUPPORTED="${unixTargets()}"
-INSTALL_DIR="\${SHAREMD_INSTALL_DIR:-$HOME/.local/bin}"
-MODE="\${SHAREMD_UPDATE:+update}"
+INSTALL_DIR="\${MDIO_INSTALL_DIR:-$HOME/.local/bin}"
+MODE="\${MDIO_UPDATE:+update}"
 
-err() { echo "sharemd install: $1" >&2; exit 1; }
+err() { echo "mdio install: $1" >&2; exit 1; }
 # Fetch a URL to stdout ($1) or to a file ($2): curl, falling back to wget.
 fetch() {
   if command -v curl >/dev/null 2>&1; then curl -fsSL "$1"
@@ -82,19 +82,19 @@ done
 
 # --- pick destination (and, when updating, decide whether an update is needed) ---
 if [ "$MODE" = update ]; then
-  dest="\${SHAREMD_CURRENT_BIN:-}"
-  [ -n "$dest" ] || err "update requires SHAREMD_CURRENT_BIN — run 'sharemd update'"
-  current="\${SHAREMD_CURRENT_VERSION:-}"
+  dest="\${MDIO_CURRENT_BIN:-}"
+  [ -n "$dest" ] || err "update requires MDIO_CURRENT_BIN — run 'mdio update'"
+  current="\${MDIO_CURRENT_VERSION:-}"
   if [ -z "$current" ] && [ -x "$dest" ]; then
     current=$("$dest" version 2>/dev/null | head -n1 | tr -d ' \\t\\r\\n')
   fi
   latest=$(fetch "$BASE/api/cli/version" | tr -d ' \\t\\r\\n')
   [ -n "$latest" ] || err "could not read the latest version from $BASE"
   if [ -n "$current" ] && [ "$current" = "$latest" ]; then
-    echo "sharemd is already up to date ($current)."
+    echo "mdio is already up to date ($current)."
     exit 0
   fi
-  echo "Updating sharemd \${current:-?} -> $latest ..."
+  echo "Updating mdio \${current:-?} -> $latest ..."
 else
   mkdir -p "$INSTALL_DIR"
   dest="$INSTALL_DIR/$BIN"
@@ -105,7 +105,7 @@ fi
 # rename — atomic, and safe even when replacing the currently-running binary.
 url="$BASE/api/cli/$target"
 dest_dir=$(dirname "$dest")
-tmp=$(mktemp "$dest_dir/.sharemd.XXXXXX" 2>/dev/null || mktemp 2>/dev/null || mktemp -t sharemd)
+tmp=$(mktemp "$dest_dir/.mdio.XXXXXX" 2>/dev/null || mktemp 2>/dev/null || mktemp -t mdio)
 trap 'rm -f "$tmp"' EXIT
 [ "$MODE" = update ] || echo "Downloading $BIN ($target) from $url ..."
 download "$url" "$tmp"
@@ -114,7 +114,7 @@ mv "$tmp" "$dest"
 trap - EXIT
 
 if [ "$MODE" = update ]; then
-  echo "Updated sharemd to $latest ($dest)."
+  echo "Updated mdio to $latest ($dest)."
   exit 0
 fi
 
@@ -129,13 +129,13 @@ case ":$PATH:" in
     for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
       [ -e "$rc" ] || continue
       grep -qF "$INSTALL_DIR" "$rc" 2>/dev/null && continue
-      printf '\\n# Added by sharemd installer\\n%s\\n' "$line" >>"$rc"
+      printf '\\n# Added by mdio installer\\n%s\\n' "$line" >>"$rc"
       added="$added $rc"
     done
     if [ -e "$HOME/.config/fish/config.fish" ]; then
       fish_cfg="$HOME/.config/fish/config.fish"
       if ! grep -qF "$INSTALL_DIR" "$fish_cfg" 2>/dev/null; then
-        printf '\\n# Added by sharemd installer\\nset -gx PATH %s $PATH\\n' "$INSTALL_DIR" >>"$fish_cfg"
+        printf '\\n# Added by mdio installer\\nset -gx PATH %s $PATH\\n' "$INSTALL_DIR" >>"$fish_cfg"
         added="$added $fish_cfg"
       fi
     fi
@@ -157,52 +157,52 @@ echo "Update later with: $BIN update"
 
 /**
  * PowerShell installer/updater for Windows: installs under
- * %LOCALAPPDATA%\\sharemd\\bin and adds it to the user PATH; in update mode it
+ * %LOCALAPPDATA%\\mdio\\bin and adds it to the user PATH; in update mode it
  * renames the running exe aside first (Windows can't overwrite a running exe).
  */
 export function renderInstallPs1(base: string): string {
   const windows = windowsPlatform();
   if (!windows) {
-    return `$ErrorActionPreference = 'Stop'\nWrite-Error "This sharemd server ships no Windows binary."\n`;
+    return `$ErrorActionPreference = 'Stop'\nWrite-Error "This mdio server ships no Windows binary."\n`;
   }
-  return `# sharemd installer/updater (Windows).
+  return `# mdio installer/updater (Windows).
 # Install:  irm ${base}/install.ps1 | iex
-# Update:   handled by 'sharemd update' (re-runs this with SHAREMD_UPDATE=1).
+# Update:   handled by 'mdio update' (re-runs this with MDIO_UPDATE=1).
 $ErrorActionPreference = 'Stop'
 
 $base = '${base}'
 $target = '${windows.id}'
 $exeName = '${windows.saveAs}'
-$update = -not [string]::IsNullOrEmpty($env:SHAREMD_UPDATE)
+$update = -not [string]::IsNullOrEmpty($env:MDIO_UPDATE)
 
 if (-not [Environment]::Is64BitOperatingSystem) {
-  Write-Error 'sharemd requires 64-bit Windows.'
+  Write-Error 'mdio requires 64-bit Windows.'
 }
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 # --- pick destination (and, when updating, decide whether an update is needed) ---
 if ($update) {
-  $dest = $env:SHAREMD_CURRENT_BIN
-  if ([string]::IsNullOrEmpty($dest)) { Write-Error "update requires SHAREMD_CURRENT_BIN — run 'sharemd update'" }
-  $current = $env:SHAREMD_CURRENT_VERSION
+  $dest = $env:MDIO_CURRENT_BIN
+  if ([string]::IsNullOrEmpty($dest)) { Write-Error "update requires MDIO_CURRENT_BIN — run 'mdio update'" }
+  $current = $env:MDIO_CURRENT_VERSION
   if ([string]::IsNullOrEmpty($current) -and (Test-Path $dest)) {
     $current = ((& $dest version) | Select-Object -First 1).Trim()
   }
   $latest = (Invoke-RestMethod -Uri "$base/api/cli/version").ToString().Trim()
   if ($current -and $current -eq $latest) {
-    Write-Host "sharemd is already up to date ($current)."
+    Write-Host "mdio is already up to date ($current)."
     return
   }
-  Write-Host "Updating sharemd $(if ($current) { $current } else { '?' }) -> $latest ..."
+  Write-Host "Updating mdio $(if ($current) { $current } else { '?' }) -> $latest ..."
 } else {
-  $installDir = Join-Path $env:LOCALAPPDATA 'sharemd\\bin'
+  $installDir = Join-Path $env:LOCALAPPDATA 'mdio\\bin'
   New-Item -ItemType Directory -Force -Path $installDir | Out-Null
   $dest = Join-Path $installDir $exeName
 }
 
 # --- download + install ---
 $url = "$base/api/cli/$target"
-if (-not $update) { Write-Host "Downloading sharemd ($target) from $url ..." }
+if (-not $update) { Write-Host "Downloading mdio ($target) from $url ..." }
 # Windows locks a running exe against overwrite but allows renaming it aside.
 if ($update -and (Test-Path $dest)) {
   Remove-Item -LiteralPath "$dest.old" -Force -ErrorAction SilentlyContinue
@@ -211,7 +211,7 @@ if ($update -and (Test-Path $dest)) {
 Invoke-WebRequest -Uri $url -OutFile $dest
 if ($update) {
   Remove-Item -LiteralPath "$dest.old" -Force -ErrorAction SilentlyContinue
-  Write-Host "Updated sharemd to $latest ($dest)."
+  Write-Host "Updated mdio to $latest ($dest)."
   return
 }
 
@@ -227,10 +227,10 @@ if (-not $onPath) {
 
 Write-Host "Installed $exeName to $dest"
 Write-Host ''
-Write-Host "sharemd is ready. Next, from the project where your agent runs:"
-Write-Host "  sharemd mcp install --server $base --username you/agent"
-Write-Host "  sharemd skill install"
-Write-Host "Update later with: sharemd update"
+Write-Host "mdio is ready. Next, from the project where your agent runs:"
+Write-Host "  mdio mcp install --server $base --username you/agent"
+Write-Host "  mdio skill install"
+Write-Host "Update later with: mdio update"
 `;
 }
 

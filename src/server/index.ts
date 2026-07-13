@@ -14,7 +14,7 @@ interface SocketData {
   peer: RoomSocket | null;
 }
 
-export interface ShareMdServer {
+export interface MdioServer {
   port: number;
   url: string;
   registry: RoomRegistry;
@@ -39,7 +39,7 @@ export async function startServer({
 }: {
   vaultDir: string;
   port?: number;
-}): Promise<ShareMdServer> {
+}): Promise<MdioServer> {
   await mkdir(vaultDir, { recursive: true }); // fresh deploys start with an empty vault
   const vault = new Vault(vaultDir);
   const registry = new RoomRegistry(vault);
@@ -156,14 +156,14 @@ export async function startServer({
 if (import.meta.main) {
   const args = Bun.argv.slice(2);
   const portFlag = args.indexOf('--port');
-  const port = portFlag >= 0 ? Number(args[portFlag + 1]) : Number(process.env.SHAREMD_PORT || 4321);
+  const port = portFlag >= 0 ? Number(args[portFlag + 1]) : Number(process.env.MDIO_PORT || 4321);
   const vaultDir =
     args.find((arg, i) => !arg.startsWith('--') && (portFlag < 0 || i !== portFlag + 1)) ??
-    process.env.SHAREMD_VAULT ??
+    process.env.MDIO_VAULT ??
     './vault';
 
   const running = await startServer({ vaultDir, port });
-  console.log(`sharemd serving ${vaultDir}`);
+  console.log(`mdio serving ${vaultDir}`);
   console.log(`Web UI:  ${running.url}`);
   console.log(`Sync:    ws://localhost:${running.port}/ws/<doc-path>`);
 

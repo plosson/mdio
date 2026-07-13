@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Compile the standalone `sharemd` binaries for every shipped platform into
+// Compile the standalone `mdio` binaries for every shipped platform into
 // dist/cli. Driven by the CLI_PLATFORMS registry (single source of truth,
 // shared with the download API and install scripts). Run at Docker image build
 // time and by the release workflow; locally via `bun run build:cli`.
@@ -25,4 +25,4 @@ for (const platform of CLI_PLATFORMS) {
   }
 }
 
-console.log(`done — ${CLI_PLATFORMS.length} sharemd binaries in ${outDir}`);
+console.log(`done — ${CLI_PLATFORMS.length} mdio binaries in ${outDir}`);

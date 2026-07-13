@@ -4,26 +4,26 @@ import { join } from 'node:path';
 import pkg from '../../package.json';
 import { readMcpConfig } from './mcp-install';
 
-/** True when running as a compiled `sharemd` binary (Bun.main is a bunfs path). */
+/** True when running as a compiled `mdio` binary (Bun.main is a bunfs path). */
 export function isCompiledBinary(): boolean {
   return Bun.main.includes('$bunfs') || Bun.main.includes('~BUN');
 }
 
 /**
  * Self-update, KCLI-style: re-fetch the server's own install script and run it
- * in update mode (SHAREMD_UPDATE=1). The script version-checks against
+ * in update mode (MDIO_UPDATE=1). The script version-checks against
  * /api/cli/version and atomically replaces this binary in place — keeping the
  * update logic server-side instead of frozen into old binaries.
  */
 export async function runUpdate(serverFlag?: string): Promise<void> {
   if (!isCompiledBinary()) {
-    throw new Error('sharemd update only works on an installed binary — in a checkout, git pull instead.');
+    throw new Error('mdio update only works on an installed binary — in a checkout, git pull instead.');
   }
   const server =
-    serverFlag ?? process.env.SHAREMD_SERVER ?? (await readMcpConfig())?.SHAREMD_SERVER;
+    serverFlag ?? process.env.MDIO_SERVER ?? (await readMcpConfig())?.MDIO_SERVER;
   if (!server) {
     throw new Error(
-      'No server to update from — pass --server <url>, set SHAREMD_SERVER, or run from a project with .mcp.json.',
+      'No server to update from — pass --server <url>, set MDIO_SERVER, or run from a project with .mcp.json.',
     );
   }
   const base = server.replace(/\/+$/, '').replace(/^ws(s?):\/\//, 'http$1://');
@@ -33,7 +33,7 @@ export async function runUpdate(serverFlag?: string): Promise<void> {
   if (!response.ok) {
     throw new Error(`Could not fetch ${scriptUrl}: HTTP ${response.status}`);
   }
-  const scriptPath = join(tmpdir(), `sharemd-update-${process.pid}.${isWindows ? 'ps1' : 'sh'}`);
+  const scriptPath = join(tmpdir(), `mdio-update-${process.pid}.${isWindows ? 'ps1' : 'sh'}`);
   await Bun.write(scriptPath, await response.text());
   try {
     const child = Bun.spawn(
@@ -41,9 +41,9 @@ export async function runUpdate(serverFlag?: string): Promise<void> {
       {
         env: {
           ...process.env,
-          SHAREMD_UPDATE: '1',
-          SHAREMD_CURRENT_BIN: process.execPath,
-          SHAREMD_CURRENT_VERSION: pkg.version,
+          MDIO_UPDATE: '1',
+          MDIO_CURRENT_BIN: process.execPath,
+          MDIO_CURRENT_VERSION: pkg.version,
         },
         stdout: 'inherit',
         stderr: 'inherit',

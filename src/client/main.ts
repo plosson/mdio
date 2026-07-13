@@ -18,7 +18,7 @@ const PALETTE = [
   { color: '#c23b64', light: '#c23b6433' },
 ];
 
-const NAME_KEY = 'sharemd-name';
+const NAME_KEY = 'mdio-name';
 
 /** Humans must not contain "/" — it is reserved for the owner/agent convention. */
 function usernameError(name: string): string | null {
@@ -187,7 +187,7 @@ function openDocument(path: string, urlMode: 'push' | 'replace' | 'none' = 'push
 
   current = { provider, view, doc, cleanup };
   // Test hook: lets e2e drive precise editor selections.
-  (globalThis as { sharemdView?: EditorView }).sharemdView = view;
+  (globalThis as { mdioView?: EditorView }).mdioView = view;
   renderPresence(provider);
 }
 

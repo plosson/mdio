@@ -4,7 +4,7 @@ import { dirname, join, normalize, resolve, sep } from 'node:path';
 const EDITABLE_EXTENSIONS = ['.md', '.markdown', '.txt'];
 
 /** Server-private directory inside the vault holding CRDT state sidecars. */
-export const STATE_DIR = '.sharemd';
+export const STATE_DIR = '.mdio';
 
 export class Vault {
   readonly root: string;

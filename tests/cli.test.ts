@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startTestServer, DEMO_CONTENT } from './helpers';
 import { AgentClient } from './mcp-client';
-import type { ShareMdServer } from '../src/server/index';
+import type { MdioServer } from '../src/server/index';
 import { installSkill, skillInstallPath } from '../src/cli/skill-install';
 import { installMcpConfig, readMcpConfig } from '../src/cli/mcp-install';
 import { CLI_PLATFORMS, cliPlatform } from '../src/cli/platforms';
@@ -39,7 +39,7 @@ function currentPlatformId(): string {
 let tmp: string;
 
 beforeAll(async () => {
-  tmp = await mkdtemp(join(tmpdir(), 'sharemd-cli-test-'));
+  tmp = await mkdtemp(join(tmpdir(), 'mdio-cli-test-'));
 });
 
 afterAll(async () => {
@@ -51,9 +51,9 @@ describe('skill install', () => {
     const cwd = join(tmp, 'skill-project');
     const first = await installSkill('project', cwd);
     expect(first.action).toBe('created');
-    expect(first.path).toBe(join(cwd, '.claude', 'skills', 'sharemd', 'SKILL.md'));
+    expect(first.path).toBe(join(cwd, '.claude', 'skills', 'mdio', 'SKILL.md'));
     const content = await Bun.file(first.path).text();
-    expect(content).toStartWith('---\nname: sharemd\n');
+    expect(content).toStartWith('---\nname: mdio\n');
     expect(content).toContain('Never touch vault files on disk');
 
     const second = await installSkill('project', cwd);
@@ -62,13 +62,13 @@ describe('skill install', () => {
 
   test('user scope targets the home directory', () => {
     expect(skillInstallPath('user', '/proj', '/home/someone')).toBe(
-      '/home/someone/.claude/skills/sharemd/SKILL.md',
+      '/home/someone/.claude/skills/mdio/SKILL.md',
     );
   });
 });
 
 describe('mcp install', () => {
-  test('creates .mcp.json with the sharemd entry', async () => {
+  test('creates .mcp.json with the mdio entry', async () => {
     const cwd = join(tmp, 'mcp-fresh');
     await Bun.write(join(cwd, '.keep'), '');
     const result = await installMcpConfig({
@@ -78,10 +78,10 @@ describe('mcp install', () => {
     });
     expect(result.action).toBe('created');
     const config = JSON.parse(await Bun.file(result.path).text());
-    expect(config.mcpServers.sharemd).toEqual({
-      command: 'sharemd',
+    expect(config.mcpServers.mdio).toEqual({
+      command: 'mdio',
       args: ['mcp'],
-      env: { SHAREMD_SERVER: 'http://localhost:9999', SHAREMD_USERNAME: 'plosson/claude' },
+      env: { MDIO_SERVER: 'http://localhost:9999', MDIO_USERNAME: 'plosson/claude' },
     });
   });
 
@@ -93,7 +93,7 @@ describe('mcp install', () => {
         someTopLevel: true,
         mcpServers: {
           other: { command: 'other-tool', args: [] },
-          sharemd: { command: 'bun', args: ['old'], env: { SHAREMD_AGENT_COLOR: '#123456' } },
+          mdio: { command: 'bun', args: ['old'], env: { MDIO_AGENT_COLOR: '#123456' } },
         },
       }),
     );
@@ -102,15 +102,15 @@ describe('mcp install', () => {
     const config = JSON.parse(await Bun.file(result.path).text());
     expect(config.someTopLevel).toBe(true);
     expect(config.mcpServers.other).toEqual({ command: 'other-tool', args: [] });
-    expect(config.mcpServers.sharemd.command).toBe('sharemd');
-    expect(config.mcpServers.sharemd.args).toEqual(['mcp']);
+    expect(config.mcpServers.mdio.command).toBe('mdio');
+    expect(config.mcpServers.mdio.args).toEqual(['mcp']);
     // extra env survives, server URL is normalized, username replaced
-    expect(config.mcpServers.sharemd.env).toEqual({
-      SHAREMD_AGENT_COLOR: '#123456',
-      SHAREMD_SERVER: 'ws://md.example.com',
-      SHAREMD_USERNAME: 'plosson',
+    expect(config.mcpServers.mdio.env).toEqual({
+      MDIO_AGENT_COLOR: '#123456',
+      MDIO_SERVER: 'ws://md.example.com',
+      MDIO_USERNAME: 'plosson',
     });
-    expect(await readMcpConfig(cwd)).toEqual(config.mcpServers.sharemd.env);
+    expect(await readMcpConfig(cwd)).toEqual(config.mcpServers.mdio.env);
   });
 
   test('rejects invalid usernames and non-URL servers', async () => {
@@ -130,7 +130,7 @@ describe('cli process', () => {
   function runCli(args: string[], cwd = PROJECT_ROOT): { code: number; stdout: string; stderr: string } {
     const result = Bun.spawnSync(['bun', 'run', join(PROJECT_ROOT, 'src', 'cli', 'index.ts'), ...args], {
       cwd,
-      env: { ...process.env, SHAREMD_SERVER: undefined, SHAREMD_USERNAME: undefined },
+      env: { ...process.env, MDIO_SERVER: undefined, MDIO_USERNAME: undefined },
     });
     return {
       code: result.exitCode,
@@ -146,7 +146,7 @@ describe('cli process', () => {
   });
 
   test('help shows usage; unknown commands fail', () => {
-    expect(runCli(['help']).stdout).toContain('sharemd mcp install');
+    expect(runCli(['help']).stdout).toContain('mdio mcp install');
     const unknown = runCli(['frobnicate']);
     expect(unknown.code).toBe(1);
     expect(unknown.stderr).toContain('unknown command');
@@ -160,21 +160,21 @@ describe('cli process', () => {
 });
 
 describe('distribution routes', () => {
-  let server: ShareMdServer;
+  let server: MdioServer;
   let distDir: string;
-  const previousDist = process.env.SHAREMD_CLI_DIST;
+  const previousDist = process.env.MDIO_CLI_DIST;
 
   beforeAll(async () => {
     distDir = join(tmp, 'dist-cli');
-    process.env.SHAREMD_CLI_DIST = distDir;
+    process.env.MDIO_CLI_DIST = distDir;
     ({ server } = await startTestServer());
   });
 
   afterAll(async () => {
     if (previousDist === undefined) {
-      delete process.env.SHAREMD_CLI_DIST;
+      delete process.env.MDIO_CLI_DIST;
     } else {
-      process.env.SHAREMD_CLI_DIST = previousDist;
+      process.env.MDIO_CLI_DIST = previousDist;
     }
     await server.stop();
   });
@@ -227,29 +227,29 @@ describe('distribution routes', () => {
     const response = await fetch(`${server.url}/api/cli/${platform.id}`);
     expect(response.status).toBe(200);
     expect(response.headers.get('content-length')).toBe('17');
-    expect(response.headers.get('content-disposition')).toContain('filename="sharemd"');
+    expect(response.headers.get('content-disposition')).toContain('filename="mdio"');
     expect(await response.text()).toBe('fake-binary-bytes');
   });
 });
 
 describe('compiled binary end-to-end', () => {
-  let server: ShareMdServer;
+  let server: MdioServer;
   let distDir: string;
   let binPath: string;
   let installedBin: string;
-  const previousDist = process.env.SHAREMD_CLI_DIST;
+  const previousDist = process.env.MDIO_CLI_DIST;
 
   beforeAll(async () => {
     distDir = join(tmp, 'dist-e2e');
-    process.env.SHAREMD_CLI_DIST = distDir;
+    process.env.MDIO_CLI_DIST = distDir;
     ({ server } = await startTestServer());
   });
 
   afterAll(async () => {
     if (previousDist === undefined) {
-      delete process.env.SHAREMD_CLI_DIST;
+      delete process.env.MDIO_CLI_DIST;
     } else {
-      process.env.SHAREMD_CLI_DIST = previousDist;
+      process.env.MDIO_CLI_DIST = previousDist;
     }
     await server.stop();
   });
@@ -281,11 +281,11 @@ describe('compiled binary end-to-end', () => {
       const result = await run(['sh', scriptPath], {
         ...process.env,
         HOME: home,
-        SHAREMD_INSTALL_DIR: installDir,
+        MDIO_INSTALL_DIR: installDir,
       });
       expect(result.code).toBe(0);
-      installedBin = join(installDir, 'sharemd');
-      expect(result.stdout + result.stderr).toContain(`Installed sharemd to ${installedBin}`);
+      installedBin = join(installDir, 'mdio');
+      expect(result.stdout + result.stderr).toContain(`Installed mdio to ${installedBin}`);
       const version = await run([installedBin, 'version']);
       expect(version.stdout.trim()).toBe(pkg.version);
     },
@@ -293,11 +293,11 @@ describe('compiled binary end-to-end', () => {
   );
 
   test(
-    'sharemd update: the installed binary version-checks against the server',
+    'mdio update: the installed binary version-checks against the server',
     async () => {
       const result = await run([installedBin, 'update', '--server', server.url], {
         ...process.env,
-        SHAREMD_SERVER: undefined,
+        MDIO_SERVER: undefined,
       });
       expect(result.code).toBe(0);
       expect(result.stdout).toContain('already up to date');
@@ -306,7 +306,7 @@ describe('compiled binary end-to-end', () => {
   );
 
   test(
-    'sharemd mcp: the binary is a full MCP peer (open, edit, read back)',
+    'mdio mcp: the binary is a full MCP peer (open, edit, read back)',
     async () => {
       const agent = await AgentClient.spawn(server.url, 'plosson/claude', {
         command: binPath,

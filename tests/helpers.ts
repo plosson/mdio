@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
-import { startServer, type ShareMdServer } from '../src/server/index';
+import { startServer, type MdioServer } from '../src/server/index';
 
 export const DEMO_CONTENT = `# Demo document
 
@@ -15,8 +15,8 @@ Shared between humans and agents.
 - Second note
 `;
 
-export async function startTestServer(): Promise<{ server: ShareMdServer; vaultDir: string }> {
-  const vaultDir = await mkdtemp(join(tmpdir(), 'sharemd-test-'));
+export async function startTestServer(): Promise<{ server: MdioServer; vaultDir: string }> {
+  const vaultDir = await mkdtemp(join(tmpdir(), 'mdio-test-'));
   await Bun.write(join(vaultDir, 'demo.md'), DEMO_CONTENT);
   await Bun.write(join(vaultDir, 'other.md'), '# Other\n');
   const server = await startServer({ vaultDir, port: 0 });
@@ -30,7 +30,7 @@ export interface TestPeer {
   destroy(): void;
 }
 
-export async function connectPeer(server: ShareMdServer, docPath: string): Promise<TestPeer> {
+export async function connectPeer(server: MdioServer, docPath: string): Promise<TestPeer> {
   const doc = new Y.Doc();
   const provider = new WebsocketProvider(`ws://localhost:${server.port}/ws`, docPath, doc, {
     disableBc: true,

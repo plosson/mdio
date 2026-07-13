@@ -46,7 +46,7 @@ class BadgeWidget extends WidgetType {
 
   override toDOM(): HTMLElement {
     const badge = document.createElement('span');
-    badge.className = 'sharemd-edit-badge';
+    badge.className = 'mdio-edit-badge';
     badge.style.background = this.color;
     badge.textContent = `✏ ${this.name}`;
     return badge;
@@ -108,9 +108,9 @@ function buildDecorations(entries: HighlightEntry[], docLength: number): Decorat
     ranges.push(
       Decoration.widget({ widget: new BadgeWidget(entry.id, entry.name, entry.color), side: -1 }).range(from),
       Decoration.mark({
-        class: 'sharemd-remote-edit',
+        class: 'mdio-remote-edit',
         attributes: {
-          style: `--sharemd-edit-bg:${entry.colorLight};--sharemd-edit-gen:${entry.generation}`,
+          style: `--mdio-edit-bg:${entry.colorLight};--mdio-edit-gen:${entry.generation}`,
         },
       }).range(from, to),
     );

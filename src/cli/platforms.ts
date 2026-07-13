@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 /**
- * A platform we ship a standalone `sharemd` binary for. Single source of truth
+ * A platform we ship a standalone `mdio` binary for. Single source of truth
  * for the build (`scripts/build-cli.ts` compiles `bunTarget` → `file`), the
  * download API (`GET /api/cli/{id}` streams `file`), and the server-rendered
  * install scripts. Kept small on purpose; add an entry to ship another.
@@ -28,25 +28,25 @@ export const CLI_PLATFORMS: readonly CliPlatform[] = [
     id: 'linux-x64',
     label: 'Linux (x64)',
     bunTarget: 'bun-linux-x64',
-    file: 'sharemd-linux-x64',
+    file: 'mdio-linux-x64',
     os: 'unix',
-    saveAs: 'sharemd',
+    saveAs: 'mdio',
   },
   {
     id: 'darwin-arm64',
     label: 'macOS (Apple Silicon)',
     bunTarget: 'bun-darwin-arm64',
-    file: 'sharemd-darwin-arm64',
+    file: 'mdio-darwin-arm64',
     os: 'unix',
-    saveAs: 'sharemd',
+    saveAs: 'mdio',
   },
   {
     id: 'windows-x64',
     label: 'Windows (x64)',
     bunTarget: 'bun-windows-x64',
-    file: 'sharemd-windows-x64.exe',
+    file: 'mdio-windows-x64.exe',
     os: 'windows',
-    saveAs: 'sharemd.exe',
+    saveAs: 'mdio.exe',
   },
 ];
 
@@ -54,10 +54,10 @@ export function cliPlatform(id: string): CliPlatform | undefined {
   return CLI_PLATFORMS.find((platform) => platform.id === id);
 }
 
-/** Where compiled binaries live; SHAREMD_CLI_DIST overrides (tests, deploys). */
+/** Where compiled binaries live; MDIO_CLI_DIST overrides (tests, deploys). */
 export function cliDistDir(): string {
   return (
-    process.env.SHAREMD_CLI_DIST ||
+    process.env.MDIO_CLI_DIST ||
     path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'dist', 'cli')
   );
 }

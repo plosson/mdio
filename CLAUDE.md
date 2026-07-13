@@ -1,4 +1,4 @@
-# sharemd
+# mdio
 
 Collaborative markdown over Yjs: a Bun server that turns a folder of markdown files into
 live collaborative documents, a CodeMirror web UI for humans, and a stdio MCP server that
@@ -12,9 +12,9 @@ cursor, anchored edits).
 - `bun run test:e2e` — Playwright e2e: two MCP agents + a browser editing concurrently
 - `bun run test:all` — everything
 - `bun run mcp` — the stdio MCP entrypoint (normally launched by an MCP host, not by hand)
-- `bun run cli` — the `sharemd` client CLI in dev (`version`, `help`, `mcp`, `mcp install`,
+- `bun run cli` — the `mdio` client CLI in dev (`version`, `help`, `mcp`, `mcp install`,
   `skill install`, `update`)
-- `bun run build:cli` — cross-compile standalone `sharemd` binaries for every entry in
+- `bun run build:cli` — cross-compile standalone `mdio` binaries for every entry in
   `src/cli/platforms.ts` into `dist/cli/` (one host builds all platforms; no native deps)
 
 Tests are self-contained: each spawns its own server on an ephemeral port with a temp vault.
@@ -38,19 +38,19 @@ Tests are self-contained: each spawns its own server on an ephemeral port with a
   `begin_edit` / `append_text` / `commit_edit` / `abort_edit`; `replace_text` for one-shot
   search+replace; comment tools (`add_comment` … `delete_comment`, `list_comments` with a
   `mentioning` filter).
-- `src/cli/` — the `sharemd` client CLI compiled to standalone binaries. Its editing
-  surface IS the MCP (`sharemd mcp` runs `runMcp()`; the MCP host keeps the process
-  alive); the rest are one-shot installers: `mcp install` merge-writes the sharemd entry
+- `src/cli/` — the `mdio` client CLI compiled to standalone binaries. Its editing
+  surface IS the MCP (`mdio mcp` runs `runMcp()`; the MCP host keeps the process
+  alive); the rest are one-shot installers: `mcp install` merge-writes the mdio entry
   into `./.mcp.json`, `skill install` writes the bundled skill (inlined from
-  `skills/sharemd/SKILL.md` at compile time) to `.claude/skills/sharemd/`, `update`
+  `skills/mdio/SKILL.md` at compile time) to `.claude/skills/mdio/`, `update`
   self-updates by re-running the server's install script. `platforms.ts` is the registry
   driving the build script, download routes, and install scripts.
 - `src/server/cli-routes.ts` — the server ships its own client: `GET /install.sh` (and
   `.ps1`) render an installer templated with the caller-visible origin (reverse-proxy
   aware), `/api/cli` lists platforms, `/api/cli/version` backs update checks, and
   `/api/cli/<platform>` streams binaries from `dist/cli` (baked in by the Dockerfile's
-  `cli` stage; `SHAREMD_CLI_DIST` overrides the directory).
-- `skills/sharemd/SKILL.md` — the canonical Claude skill teaching when/how to use the
+  `cli` stage; `MDIO_CLI_DIST` overrides the directory).
+- `skills/mdio/SKILL.md` — the canonical Claude skill teaching when/how to use the
   MCP tools (routing rule, workflows, concurrency discipline); versioned with the tool
   surface it documents.
 - `tests/` — `helpers.ts` (test server + raw Yjs peers), `mcp-client.ts` (scripted MCP
@@ -71,14 +71,14 @@ Tests are self-contained: each spawns its own server on an ephemeral port with a
   connect, before their first edit.
 - The server is the **sole writer** of vault files. There is deliberately no file watcher:
   external disk edits while the server runs are unsupported (decision, not an oversight).
-  The markdown file stays the source of truth for content; the `.sharemd/` sidecars only
+  The markdown file stays the source of truth for content; the `.mdio/` sidecars only
   add metadata (`<path>.yjs` CRDT state incl. authorship and comments, `<path>.log`
   append-only update history), and any divergence is reconciled as a "disk"-authored edit
   on hydrate.
 - Editing tools must anchor with relative positions, never raw character offsets held
   across await points — other peers edit between tool calls.
-- Peer identity comes from the MCP config env (`SHAREMD_USERNAME`, optional
-  `SHAREMD_AGENT_COLOR`, `SHAREMD_SERVER`), not from tool arguments. Convention (trust,
+- Peer identity comes from the MCP config env (`MDIO_USERNAME`, optional
+  `MDIO_AGENT_COLOR`, `MDIO_SERVER`), not from tool arguments. Convention (trust,
   not auth): `owner/agent` (e.g. `plosson/claude`) means role `agent` linked to that human;
   a plain name means role `human` — so an MCP peer can act as a human. The web UI asks for
   a username (localStorage, logout clears it) and rejects `/` in it.
@@ -90,8 +90,8 @@ Easiest — install the binary from a running server, then wire the project:
 
 ```sh
 curl -fsSL http://localhost:4321/install.sh | sh
-sharemd mcp install --server http://localhost:4321 --username plosson/claude
-sharemd skill install
+mdio mcp install --server http://localhost:4321 --username plosson/claude
+mdio skill install
 ```
 
 Or by hand (e.g. from a checkout, without the binary):
@@ -99,12 +99,12 @@ Or by hand (e.g. from a checkout, without the binary):
 ```json
 {
   "mcpServers": {
-    "sharemd": {
+    "mdio": {
       "command": "bun",
       "args": ["run", "<repo>/src/mcp/index.ts"],
       "env": {
-        "SHAREMD_SERVER": "http://localhost:4321",
-        "SHAREMD_USERNAME": "plosson/claude"
+        "MDIO_SERVER": "http://localhost:4321",
+        "MDIO_USERNAME": "plosson/claude"
       }
     }
   }

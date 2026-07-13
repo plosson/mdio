@@ -1,14 +1,14 @@
 {
   "mcpServers": {
-    "sharemd": {
+    "mdio": {
       "command": "bun",
       "args": [
         "run",
         "src/mcp/index.ts"
       ],
       "env": {
-        "SHAREMD_SERVER": "http://localhost:4321",
-        "SHAREMD_USERNAME": "plosson/claude"
+        "MDIO_SERVER": "http://localhost:4321",
+        "MDIO_USERNAME": "plosson/claude"
       }
     }
   }

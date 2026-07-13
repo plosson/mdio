@@ -12,7 +12,7 @@ export interface AgentIdentity {
 
 export type AgentStatus = 'idle' | 'composing';
 
-/** A live Yjs peer connection to one sharemd document. */
+/** A live Yjs peer connection to one mdio document. */
 export class DocumentSession {
   // gc:false so locally-synced deleted items survive for blame computation.
   readonly doc = new Y.Doc({ gc: false });
@@ -62,7 +62,7 @@ export class DocumentSession {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.provider.off('sync', onSync);
-        reject(new Error(`Timed out syncing "${this.path}" after ${timeoutMs}ms — is the sharemd server running at ${this.serverWsBase}?`));
+        reject(new Error(`Timed out syncing "${this.path}" after ${timeoutMs}ms — is the mdio server running at ${this.serverWsBase}?`));
       }, timeoutMs);
       const onSync = (synced: boolean) => {
         if (!synced) {

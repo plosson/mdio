@@ -1,7 +1,7 @@
 import type { AgentIdentity } from './session';
 
 /**
- * Identity convention: SHAREMD_USERNAME is either a plain human username
+ * Identity convention: MDIO_USERNAME is either a plain human username
  * ("plosson") or an owner-scoped agent name ("plosson/claude"). A "/" means the
  * peer is an agent acting on behalf of the owner before the slash and implies
  * role "agent"; without it the peer joins as a regular human. This is a naming
@@ -19,17 +19,17 @@ export interface ParsedUsername {
 export function parseUsername(raw: string): ParsedUsername {
   const name = raw.trim();
   if (!name) {
-    throw new Error('SHAREMD_USERNAME must not be empty.');
+    throw new Error('MDIO_USERNAME must not be empty.');
   }
   if (/\s/.test(name)) {
-    throw new Error(`SHAREMD_USERNAME must not contain whitespace: "${name}"`);
+    throw new Error(`MDIO_USERNAME must not contain whitespace: "${name}"`);
   }
   const segments = name.split('/');
   if (segments.length > 2) {
-    throw new Error(`SHAREMD_USERNAME may contain at most one "/" (owner/agent): "${name}"`);
+    throw new Error(`MDIO_USERNAME may contain at most one "/" (owner/agent): "${name}"`);
   }
   if (segments.some((segment) => !segment)) {
-    throw new Error(`SHAREMD_USERNAME has an empty owner or agent segment: "${name}"`);
+    throw new Error(`MDIO_USERNAME has an empty owner or agent segment: "${name}"`);
   }
   return segments.length === 2
     ? { name, owner: segments[0]!, role: 'agent' }
@@ -37,18 +37,18 @@ export function parseUsername(raw: string): ParsedUsername {
 }
 
 export function resolveIdentity(env: Record<string, string | undefined>): AgentIdentity {
-  const raw = env.SHAREMD_USERNAME;
+  const raw = env.MDIO_USERNAME;
   if (!raw) {
-    const legacyHint = env.SHAREMD_AGENT_NAME
-      ? ' SHAREMD_AGENT_NAME was replaced by SHAREMD_USERNAME — use "owner/agent" for agents, e.g. "plosson/claude".'
+    const legacyHint = env.MDIO_AGENT_NAME
+      ? ' MDIO_AGENT_NAME was replaced by MDIO_USERNAME — use "owner/agent" for agents, e.g. "plosson/claude".'
       : '';
-    throw new Error(`SHAREMD_USERNAME is required — set it in the MCP server config env.${legacyHint}`);
+    throw new Error(`MDIO_USERNAME is required — set it in the MCP server config env.${legacyHint}`);
   }
   const { name, role } = parseUsername(raw);
   let hash = 0;
   for (const char of name) {
     hash = (hash * 31 + char.charCodeAt(0)) | 0;
   }
-  const color = env.SHAREMD_AGENT_COLOR || PALETTE[Math.abs(hash) % PALETTE.length]!;
+  const color = env.MDIO_AGENT_COLOR || PALETTE[Math.abs(hash) % PALETTE.length]!;
   return { name, color, colorLight: `${color}33`, role };
 }

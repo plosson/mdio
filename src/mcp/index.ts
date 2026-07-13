@@ -19,7 +19,7 @@ export function resolveServerUrls(env: Record<string, string | undefined> = proc
   wsBase: string;
   httpBase: string;
 } {
-  const raw = (env.SHAREMD_SERVER || 'http://localhost:4321').replace(/\/+$/, '');
+  const raw = (env.MDIO_SERVER || 'http://localhost:4321').replace(/\/+$/, '');
   const httpBase = raw.replace(/^ws(s?):\/\//, 'http$1://');
   const wsBase = `${httpBase.replace(/^http(s?):\/\//, 'ws$1://')}/ws`;
   return { wsBase, httpBase };
@@ -45,7 +45,7 @@ export async function runMcp(): Promise<void> {
   const { wsBase, httpBase } = resolveServerUrls();
   const runtime = new AgentRuntime(wsBase, httpBase, identity);
 
-  const server = new McpServer({ name: 'sharemd', version: pkg.version });
+  const server = new McpServer({ name: 'mdio', version: pkg.version });
 
   server.registerTool(
     'list_documents',
@@ -262,7 +262,7 @@ export async function runMcp(): Promise<void> {
     process.exit(0);
   };
   await server.connect(transport);
-  console.error(`sharemd MCP ready — agent "${identity.name}" targeting ${httpBase}`);
+  console.error(`mdio MCP ready — agent "${identity.name}" targeting ${httpBase}`);
 }
 
 if (import.meta.main) {

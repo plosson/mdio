@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { rm } from 'node:fs/promises';
 import * as Y from 'yjs';
 import { connectPeer, DEMO_CONTENT, startTestServer, waitFor, type TestPeer } from './helpers';
-import { startServer, type ShareMdServer } from '../src/server/index';
+import { startServer, type MdioServer } from '../src/server/index';
 import { blameLines, registerAuthor, type BlameLine } from '../src/shared/blame';
 import { AgentClient } from './mcp-client';
 
@@ -17,19 +17,19 @@ afterEach(async () => {
   }
 });
 
-async function freshServer(): Promise<{ server: ShareMdServer; vaultDir: string }> {
+async function freshServer(): Promise<{ server: MdioServer; vaultDir: string }> {
   const started = await startTestServer();
   cleanups.push(() => started.server.stop());
   return started;
 }
 
-async function restartServer(vaultDir: string): Promise<ShareMdServer> {
+async function restartServer(vaultDir: string): Promise<MdioServer> {
   const server = await startServer({ vaultDir, port: 0 });
   cleanups.push(() => server.stop());
   return server;
 }
 
-async function peer(server: ShareMdServer, docPath: string, name?: string): Promise<TestPeer> {
+async function peer(server: MdioServer, docPath: string, name?: string): Promise<TestPeer> {
   const connected = await connectPeer(server, docPath);
   cleanups.push(() => connected.destroy());
   if (name) {
@@ -38,13 +38,13 @@ async function peer(server: ShareMdServer, docPath: string, name?: string): Prom
   return connected;
 }
 
-async function spawnAgent(server: ShareMdServer, name: string): Promise<AgentClient> {
+async function spawnAgent(server: MdioServer, name: string): Promise<AgentClient> {
   const agent = await AgentClient.spawn(server.url, name);
   cleanups.push(() => agent.close());
   return agent;
 }
 
-async function fetchBlame(server: ShareMdServer, docPath: string): Promise<BlameLine[]> {
+async function fetchBlame(server: MdioServer, docPath: string): Promise<BlameLine[]> {
   const response = await fetch(`${server.url}/api/blame/${docPath}`);
   expect(response.status).toBe(200);
   const { lines } = (await response.json()) as { lines: BlameLine[] };
@@ -52,7 +52,7 @@ async function fetchBlame(server: ShareMdServer, docPath: string): Promise<Blame
 }
 
 /** The server-side room, so tests can await propagation deterministically. */
-async function serverRoom(server: ShareMdServer, docPath: string) {
+async function serverRoom(server: MdioServer, docPath: string) {
   const room = await server.registry.open(docPath);
   return room.doc.getText('content');
 }
@@ -191,7 +191,7 @@ describe('blame over HTTP', () => {
 
   test('rejects traversal, sidecar-dir, and non-text paths', async () => {
     const { server } = await freshServer();
-    for (const bad of ['..%2Fsecret.md', '.sharemd%2Fdemo.md', '.sharemd%2Fdemo.md.yjs', 'app.exe']) {
+    for (const bad of ['..%2Fsecret.md', '.mdio%2Fdemo.md', '.mdio%2Fdemo.md.yjs', 'app.exe']) {
       const response = await fetch(`${server.url}/api/blame/${bad}`);
       expect(response.status).toBe(400);
     }
@@ -219,7 +219,7 @@ describe('blame persistence across restarts', () => {
     cleanups.length = 0; // server stopped explicitly; peers died with it
     alice.destroy();
 
-    expect(await Bun.file(join(vaultDir, '.sharemd', 'demo.md.yjs')).exists()).toBe(true);
+    expect(await Bun.file(join(vaultDir, '.mdio', 'demo.md.yjs')).exists()).toBe(true);
 
     const restarted = await restartServer(vaultDir);
     const lines = await fetchBlame(restarted, 'demo.md');
@@ -265,7 +265,7 @@ describe('blame persistence across restarts', () => {
     cleanups.length = 0;
     alice.destroy();
 
-    await Bun.write(join(vaultDir, '.sharemd', 'demo.md.yjs'), new Uint8Array([7, 7, 7, 7, 7]));
+    await Bun.write(join(vaultDir, '.mdio', 'demo.md.yjs'), new Uint8Array([7, 7, 7, 7, 7]));
 
     const restarted = await restartServer(vaultDir);
     const bob = await peer(restarted, 'demo.md');
@@ -286,7 +286,7 @@ describe('blame persistence across restarts', () => {
     cleanups.length = 0;
     alice.destroy();
 
-    const sidecarPath = join(vaultDir, '.sharemd', 'demo.md.yjs');
+    const sidecarPath = join(vaultDir, '.mdio', 'demo.md.yjs');
     const sidecar = new Uint8Array(await Bun.file(sidecarPath).arrayBuffer());
     await Bun.write(sidecarPath, sidecar.slice(0, Math.floor(sidecar.length * 0.6)));
 

@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
 import { connectPeer, DEMO_CONTENT, startTestServer, waitFor, type TestPeer } from './helpers';
-import type { ShareMdServer } from '../src/server/index';
+import type { MdioServer } from '../src/server/index';
 
-let server: ShareMdServer;
+let server: MdioServer;
 let vaultDir: string;
 const peers: TestPeer[] = [];
 
@@ -24,11 +24,11 @@ async function peer(docPath: string): Promise<TestPeer> {
   return connected;
 }
 
-describe('sharemd server', () => {
+describe('mdio server', () => {
   test('starts with a nonexistent vault directory (fresh deploy)', async () => {
     const { mkdtemp, rm } = await import('node:fs/promises');
     const { tmpdir } = await import('node:os');
-    const parent = await mkdtemp(join(tmpdir(), 'sharemd-fresh-'));
+    const parent = await mkdtemp(join(tmpdir(), 'mdio-fresh-'));
     const { startServer } = await import('../src/server/index');
     const fresh = await startServer({ vaultDir: join(parent, 'does-not-exist-yet'), port: 0 });
     try {

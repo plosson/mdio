@@ -43,7 +43,7 @@ const commentField = StateField.define<DecorationSet>({
             .filter((range) => range.to > range.from)
             .map((range) =>
               Decoration.mark({
-                class: range.focused ? 'sharemd-comment sharemd-comment-focused' : 'sharemd-comment',
+                class: range.focused ? 'mdio-comment mdio-comment-focused' : 'mdio-comment',
                 attributes: { 'data-comment-id': range.id },
               }).range(range.from, range.to),
             ),

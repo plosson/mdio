@@ -1,5 +1,5 @@
 {
-  "name": "sharemd",
+  "name": "mdio",
   "version": "0.1.0",
   "description": "Collaborative markdown over Yjs with a stdio MCP so agents join as CRDT peers.",
   "type": "module",

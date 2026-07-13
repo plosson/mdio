@@ -27,7 +27,7 @@ interface McpJson {
 }
 
 /**
- * Write (or merge into) the project's `.mcp.json`, setting only the `sharemd`
+ * Write (or merge into) the project's `.mcp.json`, setting only the `mdio`
  * entry and preserving everything else — other servers, unknown top-level keys,
  * and any extra fields a host put on our entry are kept untouched.
  */
@@ -51,23 +51,23 @@ export async function installMcpConfig(options: McpInstallOptions): Promise<McpI
   }
 
   const servers = (config.mcpServers ??= {}) as Record<string, unknown>;
-  const previous = (servers.sharemd ?? {}) as Record<string, unknown>;
+  const previous = (servers.mdio ?? {}) as Record<string, unknown>;
   const entry: McpServerEntry = {
-    command: options.command ?? 'sharemd',
+    command: options.command ?? 'mdio',
     args: ['mcp'],
     env: {
       ...((previous.env as Record<string, string>) ?? {}),
-      SHAREMD_SERVER: server,
-      SHAREMD_USERNAME: options.username,
+      MDIO_SERVER: server,
+      MDIO_USERNAME: options.username,
     },
   };
-  servers.sharemd = { ...previous, ...entry };
+  servers.mdio = { ...previous, ...entry };
 
   await Bun.write(path, `${JSON.stringify(config, null, 2)}\n`);
   return { path, action: exists ? 'updated' : 'created', entry };
 }
 
-/** Read the sharemd env from a `.mcp.json`, if present (used as an update fallback). */
+/** Read the mdio env from a `.mcp.json`, if present (used as an update fallback). */
 export async function readMcpConfig(cwd = process.cwd()): Promise<Record<string, string> | null> {
   const file = Bun.file(join(cwd, '.mcp.json'));
   if (!(await file.exists())) {
@@ -75,7 +75,7 @@ export async function readMcpConfig(cwd = process.cwd()): Promise<Record<string,
   }
   try {
     const config = JSON.parse(await file.text()) as McpJson;
-    const entry = (config.mcpServers as Record<string, { env?: Record<string, string> }> | undefined)?.sharemd;
+    const entry = (config.mcpServers as Record<string, { env?: Record<string, string> }> | undefined)?.mdio;
     return entry?.env ?? null;
   } catch {
     return null;

@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
-// The `sharemd` client CLI. Its editing surface IS the MCP (`sharemd mcp` runs
+// The `mdio` client CLI. Its editing surface IS the MCP (`mdio mcp` runs
 // the stdio server; the MCP host keeps the process alive); the other
 // subcommands are one-shot lifecycle helpers: wiring .mcp.json, installing the
-// bundled Claude skill, and self-updating against a sharemd server.
+// bundled Claude skill, and self-updating against a mdio server.
 import { parseArgs } from 'node:util';
 import pkg from '../../package.json';
 import { runMcp } from '../mcp/index';
@@ -10,24 +10,24 @@ import { installMcpConfig } from './mcp-install';
 import { installSkill, type InstallScope } from './skill-install';
 import { runUpdate } from './update';
 
-const USAGE = `sharemd ${pkg.version} — collaborative markdown client (MCP + installers)
+const USAGE = `mdio ${pkg.version} — collaborative markdown client (MCP + installers)
 
 Usage:
-  sharemd mcp                      Run the stdio MCP server (what an MCP host launches)
-  sharemd mcp install [options]    Add/refresh the sharemd entry in ./.mcp.json
-      --server <url>               sharemd server URL (default: $SHAREMD_SERVER)
-      --username <name>            "you" (human) or "you/agent" (default: $SHAREMD_USERNAME)
-      --command <cmd>              command written to .mcp.json (default: sharemd)
-  sharemd skill install [--user]   Install the Claude skill to <cwd>/.claude/skills/sharemd/
-                                   (--user installs to ~/.claude/skills/sharemd/ instead)
-  sharemd update [--server <url>]  Update this binary from the server's install script
-  sharemd version                  Print the version
+  mdio mcp                      Run the stdio MCP server (what an MCP host launches)
+  mdio mcp install [options]    Add/refresh the mdio entry in ./.mcp.json
+      --server <url>               mdio server URL (default: $MDIO_SERVER)
+      --username <name>            "you" (human) or "you/agent" (default: $MDIO_USERNAME)
+      --command <cmd>              command written to .mcp.json (default: mdio)
+  mdio skill install [--user]   Install the Claude skill to <cwd>/.claude/skills/mdio/
+                                   (--user installs to ~/.claude/skills/mdio/ instead)
+  mdio update [--server <url>]  Update this binary from the server's install script
+  mdio version                  Print the version
 
 Get the binary from a running server:  curl -fsSL <server>/install.sh | sh
 `;
 
 function fail(message: string): never {
-  console.error(`sharemd: ${message}`);
+  console.error(`mdio: ${message}`);
   process.exit(1);
 }
 
@@ -40,19 +40,19 @@ async function mcpInstallCommand(args: string[]): Promise<void> {
       command: { type: 'string' },
     },
   });
-  const server = values.server ?? process.env.SHAREMD_SERVER;
-  const username = values.username ?? process.env.SHAREMD_USERNAME;
+  const server = values.server ?? process.env.MDIO_SERVER;
+  const username = values.username ?? process.env.MDIO_USERNAME;
   if (!server) {
-    fail('mcp install needs --server <url> (or SHAREMD_SERVER set).');
+    fail('mcp install needs --server <url> (or MDIO_SERVER set).');
   }
   if (!username) {
-    fail('mcp install needs --username <name> (or SHAREMD_USERNAME set) — "you" or "you/agent".');
+    fail('mcp install needs --username <name> (or MDIO_USERNAME set) — "you" or "you/agent".');
   }
   const result = await installMcpConfig({ server, username, command: values.command });
   console.log(`${result.action === 'created' ? 'Created' : 'Updated'} ${result.path}`);
-  console.log(`  sharemd → ${result.entry.command} mcp  (server ${result.entry.env.SHAREMD_SERVER}, user ${result.entry.env.SHAREMD_USERNAME})`);
-  if (result.entry.command === 'sharemd' && !Bun.which('sharemd')) {
-    console.error('warning: "sharemd" is not on your PATH — MCP hosts will fail to launch it.');
+  console.log(`  mdio → ${result.entry.command} mcp  (server ${result.entry.env.MDIO_SERVER}, user ${result.entry.env.MDIO_USERNAME})`);
+  if (result.entry.command === 'mdio' && !Bun.which('mdio')) {
+    console.error('warning: "mdio" is not on your PATH — MCP hosts will fail to launch it.');
     console.error('         Install it first: curl -fsSL <server>/install.sh | sh');
   }
 }
@@ -86,14 +86,14 @@ export async function main(argv: string[]): Promise<void> {
         } else if (rest.length === 0) {
           await runMcp(); // stdio protocol from here on — nothing else may touch stdout
         } else {
-          fail(`unknown mcp subcommand "${rest[0]}" — try "sharemd mcp" or "sharemd mcp install".`);
+          fail(`unknown mcp subcommand "${rest[0]}" — try "mdio mcp" or "mdio mcp install".`);
         }
         return;
       case 'skill':
         if (rest[0] === 'install') {
           await skillInstallCommand(rest.slice(1));
         } else {
-          fail(`unknown skill subcommand "${rest[0] ?? ''}" — try "sharemd skill install".`);
+          fail(`unknown skill subcommand "${rest[0] ?? ''}" — try "mdio skill install".`);
         }
         return;
       case 'update':
@@ -111,7 +111,7 @@ export async function main(argv: string[]): Promise<void> {
         console.log(USAGE);
         return;
       default:
-        fail(`unknown command "${command}" — run "sharemd help".`);
+        fail(`unknown command "${command}" — run "mdio help".`);
     }
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));
