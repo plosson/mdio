@@ -493,6 +493,22 @@ body {
   white-space: nowrap;
 }
 
+#activity {
+  padding: 5px 16px;
+  font-size: 12px;
+  font-style: italic;
+  color: #6a53d0;
+  background: #f4f1ff;
+  border-bottom: 1px solid #e7e1ff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#activity[hidden] {
+  display: none;
+}
+
 #workspace {
   flex: 1;
   display: flex;

@@ -209,6 +209,18 @@ export class AgentRuntime {
     this.requireSession().setCursor(index);
   }
 
+  /** The nearest markdown heading at or above a character index, for presence. */
+  private sectionAt(index: number): string | null {
+    const lines = this.text().slice(0, index).split('\n');
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const heading = /^#{1,6}\s+(.*\S)\s*$/.exec(lines[i]!);
+      if (heading) {
+        return heading[1]!;
+      }
+    }
+    return null;
+  }
+
   // ── reads ────────────────────────────────────────────────────────────
 
   readDocument(startChar = 0, maxChars = 6000): {
@@ -464,7 +476,7 @@ export class AgentRuntime {
       end: this.relativeAt(at, -1),
       committedChars: 0,
     };
-    session.setStatus('composing');
+    session.setStatus('composing', this.sectionAt(at));
     this.placeCursorAtIndex(at);
     return { mode, startAt: at };
   }

@@ -476,6 +476,39 @@ describe('mdio MCP', () => {
     }
   });
 
+  test('an open edit session broadcasts composing status and its section via presence', async () => {
+    await apiCreateDoc(server, 'main/presence.md');
+    const watcher = await connectPeer(server, 'main/presence.md');
+    const scribe = await AgentClient.spawn(server.url, 'plosson/dave');
+    try {
+      await scribe.call('open_document', { path: 'presence.md' });
+      await scribe.call('insert_text', { text: '# Intro\n\nsome text\n\n## Details\n\n' });
+
+      const scribeState = (): { status?: string; section?: string | null } | null => {
+        for (const state of watcher.provider.awareness.getStates().values()) {
+          const peer = (state as { user?: { name?: string; status?: string; section?: string | null } }).user;
+          if (peer?.name === 'plosson/dave') {
+            return peer;
+          }
+        }
+        return null;
+      };
+
+      // Opening an append session at the end announces "composing" in §Details.
+      await scribe.call('begin_edit', { mode: 'append' });
+      await waitFor(() => scribeState()?.status === 'composing', { label: 'composing to reach the watcher' });
+      expect(scribeState()!.section).toBe('Details');
+
+      // Committing returns to idle and clears the section.
+      await scribe.call('commit_edit');
+      await waitFor(() => scribeState()?.status === 'idle', { label: 'idle to reach the watcher' });
+      expect(scribeState()!.section).toBeNull();
+    } finally {
+      watcher.destroy();
+      await scribe.close();
+    }
+  });
+
   test('edits persist to the file on disk', async () => {
     await server.registry.flushAll();
     const onDisk = await Bun.file(join(vaultDir, 'main/demo.md')).text();

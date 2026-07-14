@@ -31,7 +31,11 @@ runs are silently lost or diverge. Always go through the mdio MCP tools.
   handles (matchIds); they stay attached to the intended text while others edit.
 - You are visible. Write long content progressively (a paragraph or two per call), keep
   your cursor where you work, and prefer commenting over silently rewriting someone
-  else's prose.
+  else's prose. While a `begin_edit` session is open, humans see a "writing in §Section"
+  banner for you — so commit or abort promptly rather than holding a session open idle.
+- Yield to humans. If someone is actively typing in the same region you were about to
+  rewrite, prefer a comment over a competing edit, or work elsewhere and come back —
+  this is courtesy, not a lock (there are none).
 - One document open at a time (`open_document` replaces the previous one) and one
   stepwise edit session at a time.
 

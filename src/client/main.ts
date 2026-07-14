@@ -97,6 +97,7 @@ const editorHost = document.querySelector('#editor')!;
 const docTitle = document.querySelector('#doc-title')!;
 const statusEl = document.querySelector('#status')! as HTMLElement;
 const presenceEl = document.querySelector('#presence')!;
+const activityEl = document.querySelector('#activity')! as HTMLElement;
 
 let current: {
   provider: WebsocketProvider;
@@ -133,6 +134,22 @@ function renderPresence(provider: WebsocketProvider) {
   }
 }
 
+/** Show which other peers are actively composing, and where — clears when they go idle. */
+function renderActivity(provider: WebsocketProvider) {
+  const writers: string[] = [];
+  for (const [clientId, state] of provider.awareness.getStates()) {
+    if (clientId === provider.awareness.clientID) {
+      continue; // don't narrate your own writing back to yourself
+    }
+    const peer = (state as { user?: { name?: string; status?: string; section?: string | null } }).user;
+    if (peer?.name && peer.status === 'composing') {
+      writers.push(peer.section ? `${peer.name} is writing in §${peer.section}` : `${peer.name} is writing…`);
+    }
+  }
+  activityEl.textContent = writers.join('  ·  ');
+  activityEl.hidden = writers.length === 0;
+}
+
 /**
  * `urlMode` — how this navigation reaches the URL: 'push' (user action, new
  * history entry, clears any focused comment), 'replace' (boot: normalize the
@@ -141,6 +158,7 @@ function renderPresence(provider: WebsocketProvider) {
 function teardownEditor() {
   closeHistory();
   closeVersions();
+  activityEl.hidden = true;
   currentPath = null;
   if (current) {
     current.cleanup();
@@ -180,7 +198,11 @@ function openDocument(path: string, urlMode: 'push' | 'replace' | 'none' = 'push
 
   provider.awareness.setLocalStateField('user', user);
   registerAuthor(doc, { name: user.name, color: user.color, role: 'human' });
-  provider.awareness.on('change', () => renderPresence(provider));
+  const renderAwareness = () => {
+    renderPresence(provider);
+    renderActivity(provider);
+  };
+  provider.awareness.on('change', renderAwareness);
   provider.on('status', ({ status }: { status: string }) => {
     statusEl.textContent = status;
     statusEl.dataset.status = status;
@@ -212,7 +234,7 @@ function openDocument(path: string, urlMode: 'push' | 'replace' | 'none' = 'push
   current = { provider, view, doc, cleanup };
   // Test hook: lets e2e drive precise editor selections.
   (globalThis as { mdioView?: EditorView }).mdioView = view;
-  renderPresence(provider);
+  renderAwareness();
 }
 
 function renderMe() {

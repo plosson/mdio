@@ -100,6 +100,23 @@ test(
 );
 
 test(
+  'a human sees a live "writing" banner while an agent holds an open edit session',
+  async () => {
+    // Alice still has main/demo.md open from the previous test; the banner is hidden.
+    await page.waitForSelector('#activity', { state: 'hidden' });
+
+    await alice.call('begin_edit', { mode: 'append' });
+    await page.waitForSelector('#activity:not([hidden])');
+    expect(await page.textContent('#activity')).toInclude('plosson/alice is writing');
+
+    // Closing the session clears the banner.
+    await alice.call('abort_edit');
+    await page.waitForSelector('#activity', { state: 'hidden' });
+  },
+  30_000,
+);
+
+test(
   'remote edits flash a transient highlight attributed to the author',
   async () => {
     const carol = await connectPeer(server, 'main/demo.md');
