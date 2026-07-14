@@ -56,6 +56,7 @@ describe('mdio MCP', () => {
       'insert_text',
       'list_comments',
       'list_documents',
+      'list_mentions',
       'open_document',
       'place_cursor',
       'read_document',
@@ -401,6 +402,78 @@ describe('mdio MCP', () => {
     const orphan = orphaned.threads.find((candidate) => candidate.root.id === commentId)!;
     expect(orphan.currentText).toBeNull();
     expect(orphan.quotedText).toBe('ANCHORED_COMMENT_ZONE');
+  });
+
+  test('list_mentions is a cross-document work queue that empties as threads are handled', async () => {
+    await apiCreateDoc(server, 'main/queue-a.md');
+    await apiCreateDoc(server, 'main/queue-b.md');
+    const carol = await AgentClient.spawn(server.url, 'plosson/carol');
+    try {
+      // Alice (the shared agent) leaves a request for carol in two different docs.
+      const requests: Array<{ doc: string; commentId: string }> = [];
+      for (const [doc, zone] of [
+        ['queue-a.md', 'QUEUE_A_ZONE'],
+        ['queue-b.md', 'QUEUE_B_ZONE'],
+      ] as const) {
+        await agent.call('open_document', { path: doc });
+        await agent.call('place_cursor', { boundary: 'end' });
+        await agent.call('insert_text', { text: `\n${zone} needs work\n` });
+        const { matches } = await agent.call<{ matches: Array<{ matchId: string }> }>('search_text', {
+          query: zone,
+        });
+        const { commentId } = await agent.call<{ commentId: string }>('add_comment', {
+          matchId: matches[0]!.matchId,
+          body: `please expand this, @plosson/carol`,
+        });
+        requests.push({ doc, commentId });
+      }
+
+      interface Mention {
+        doc: string;
+        threadId: string;
+        currentText: string | null;
+        resolved: boolean;
+        request: { author: string; body: string };
+        respondedByWho: boolean;
+      }
+      const queueFor = (carolClient: AgentClient, args: Record<string, unknown> = {}) =>
+        carolClient.call<{ who: string; mentions: Mention[] }>('list_mentions', args);
+
+      // Carol sees both, across documents, without opening anything.
+      const both = await eventually(
+        () => queueFor(carol),
+        ({ mentions }) => mentions.length === 2,
+        "alice's two mentions to reach carol's queue",
+      );
+      expect(both.who).toBe('plosson/carol');
+      expect(both.mentions.map((mention) => mention.doc).sort()).toEqual(['queue-a.md', 'queue-b.md']);
+      const first = both.mentions.find((mention) => mention.doc === 'queue-a.md')!;
+      expect(first.currentText).toBe('QUEUE_A_ZONE');
+      expect(first.request.author).toBe('plosson/alice');
+      expect(first.request.body).toInclude('please expand this');
+      expect(first.respondedByWho).toBe(false);
+
+      // Carol handles queue-a: opens it, replies, resolves.
+      await carol.call('open_document', { path: 'queue-a.md' });
+      await carol.call('reply_comment', { commentId: requests[0]!.commentId, body: 'done @plosson/alice' });
+      await carol.call('resolve_comment', { commentId: requests[0]!.commentId });
+
+      // The handled thread drops out of the default (unhandled-only) queue.
+      const remaining = await eventually(
+        () => queueFor(carol),
+        ({ mentions }) => mentions.length === 1,
+        'the resolved thread to leave carol’s queue',
+      );
+      expect(remaining.mentions[0]!.doc).toBe('queue-b.md');
+
+      // includeHandled surfaces it again, flagged resolved and answered.
+      const all = await queueFor(carol, { includeHandled: true });
+      const handled = all.mentions.find((mention) => mention.doc === 'queue-a.md')!;
+      expect(handled.resolved).toBe(true);
+      expect(handled.respondedByWho).toBe(true);
+    } finally {
+      await carol.close();
+    }
   });
 
   test('edits persist to the file on disk', async () => {

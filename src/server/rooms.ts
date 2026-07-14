@@ -322,6 +322,11 @@ export class RoomRegistry {
     private readonly persistDebounceMs = 400,
   ) {}
 
+  /** The already-open room for a name, or undefined — never opens or hydrates one. */
+  peek(name: string): Promise<Room> | undefined {
+    return this.rooms.get(name);
+  }
+
   open(name: string): Promise<Room> {
     let room = this.rooms.get(name);
     if (!room) {

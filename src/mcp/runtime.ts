@@ -93,6 +93,29 @@ export class AgentRuntime {
     return docs;
   }
 
+  /**
+   * Cross-document work queue: open comment threads anywhere in the project that
+   * @mention this peer. Hits the server directly — no document need be open, and
+   * scanning never opens or creates one.
+   */
+  async listMentions(input: { includeHandled?: boolean }): Promise<unknown> {
+    const params = new URLSearchParams({ who: this.identity.name });
+    if (input.includeHandled) {
+      params.set('open', 'false');
+    }
+    const response = await fetch(
+      `${this.serverHttpBase}/api/projects/${encodeURIComponent(this.project)}/mentions?${params}`,
+    );
+    if (!response.ok) {
+      const detail =
+        response.status === 404
+          ? `project "${this.project}" does not exist on the server`
+          : `HTTP ${response.status}`;
+      throw new Error(`Failed to list mentions: ${detail}`);
+    }
+    return response.json();
+  }
+
   async openDocument(path: string): Promise<{ path: string; charCount: number }> {
     const vaultPath = this.vaultPath(path);
     const relative = this.relativePath(vaultPath);

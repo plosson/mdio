@@ -57,6 +57,16 @@ export async function runMcp(): Promise<void> {
   );
 
   server.registerTool(
+    'list_mentions',
+    {
+      description:
+        'Your work queue: open comment threads across your whole project that @mention you. Unlike list_comments (the open document only), this scans every document without opening it, so you can find where you are needed. Each entry gives the document path, the requesting comment, and its anchored text. Act on one by open_document(that path) → make the edit → reply_comment + resolve_comment to close the loop. By default only unhandled threads (not resolved, no reply from you) are returned; pass includeHandled:true to see all.',
+      inputSchema: { includeHandled: z.boolean().optional() },
+    },
+    ({ includeHandled }) => respond(() => runtime.listMentions({ includeHandled })),
+  );
+
+  server.registerTool(
     'open_document',
     {
       description:

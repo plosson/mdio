@@ -13,7 +13,9 @@
 //   GET    /api/projects/:p/docs/*d/blame         per-line authorship
 //
 // Errors are JSON {error} with 400 (invalid), 404 (missing), 409 (conflict).
-import { blameLines } from '../shared/blame';
+import * as Y from 'yjs';
+import { blameLines, TEXT_KEY } from '../shared/blame';
+import { listThreads } from '../shared/comments';
 import { ConflictError, NotFoundError, type Vault } from './vault';
 import type { RoomRegistry } from './rooms';
 
@@ -49,6 +51,91 @@ function requireRelPath(value: unknown, field: string): string {
 
 function methodNotAllowed(): Response {
   return Response.json({ error: 'Method not allowed' }, { status: 405 });
+}
+
+interface MentionEntry {
+  /** Project-relative document path the thread lives in. */
+  doc: string;
+  threadId: string;
+  quotedText: string;
+  /** Current anchored text, or null when the commented range was deleted (orphaned). */
+  currentText: string | null;
+  resolved: boolean;
+  /** The comment (root or reply) that named the peer — the actual request. */
+  request: { author: string; body: string; createdAt: number };
+  /** True once the peer has authored any comment in the thread. */
+  respondedByWho: boolean;
+}
+
+/**
+ * Read a document's Y.Doc without side effects: the live room if one is already
+ * open (freshest), otherwise a throwaway doc rebuilt from the state sidecar.
+ * `release()` disposes the throwaway; it is a no-op for a live room.
+ */
+async function docForRead(
+  name: string,
+  vault: Vault,
+  registry: RoomRegistry,
+): Promise<{ doc: Y.Doc | null; release: () => void }> {
+  const open = await registry.peek(name)?.catch(() => null);
+  if (open) {
+    return { doc: open.doc, release: () => {} };
+  }
+  const state = await vault.readState(name);
+  if (!state) {
+    return { doc: null, release: () => {} };
+  }
+  const doc = new Y.Doc({ gc: false });
+  Y.applyUpdate(doc, state);
+  return { doc, release: () => doc.destroy() };
+}
+
+/**
+ * Scan every document in a project for comment threads that @mention `who`.
+ * A thread is "handled" once it is resolved or the peer has replied in it;
+ * handled threads are omitted unless `includeHandled`.
+ */
+async function collectMentions(
+  vault: Vault,
+  registry: RoomRegistry,
+  project: string,
+  who: string,
+  includeHandled: boolean,
+): Promise<MentionEntry[]> {
+  const docs = await vault.listDocs(project);
+  const entries: MentionEntry[] = [];
+  for (const rel of docs) {
+    const { doc, release } = await docForRead(`${project}/${rel}`, vault, registry);
+    if (!doc) {
+      continue;
+    }
+    try {
+      const content = doc.getText(TEXT_KEY).toString();
+      for (const thread of listThreads(doc)) {
+        const comments = [thread.root, ...thread.replies];
+        const request = comments.find((comment) => comment.mentions.includes(who));
+        if (!request) {
+          continue;
+        }
+        const respondedByWho = comments.some((comment) => comment.author === who);
+        if ((thread.resolved || respondedByWho) && !includeHandled) {
+          continue;
+        }
+        entries.push({
+          doc: rel,
+          threadId: thread.root.id,
+          quotedText: thread.quotedText,
+          currentText: thread.range ? content.slice(thread.range.from, thread.range.to) : null,
+          resolved: thread.resolved,
+          request: { author: request.author, body: request.body, createdAt: request.createdAt },
+          respondedByWho,
+        });
+      }
+    } finally {
+      release();
+    }
+  }
+  return entries.sort((a, b) => a.request.createdAt - b.request.createdAt);
 }
 
 /**
@@ -101,6 +188,18 @@ export async function handleProjectsApi(
       default:
         return methodNotAllowed();
     }
+  }
+
+  // /api/projects/:p/mentions?who=<name>&open=<bool> — cross-document work queue:
+  // open comment threads across every document in the project that @mention a peer.
+  if (segments[3] === 'mentions' && segments.length === 4) {
+    if (req.method !== 'GET') {
+      return methodNotAllowed();
+    }
+    const who = requireString(url.searchParams.get('who'), 'who');
+    const includeHandled = url.searchParams.get('open') === 'false';
+    const mentions = await collectMentions(vault, registry, project, who, includeHandled);
+    return Response.json({ project, who, mentions });
   }
 
   if (segments[3] !== 'docs') {

@@ -74,9 +74,15 @@ active — commit or abort first.
 3. Comment first; edit someone else's prose only when asked to.
 
 ### Respond to feedback addressed to you
-1. `list_comments(mentioning: "<your username>", includeResolved: false)`.
-2. Make the requested change (workflows above).
-3. `reply_comment` explaining what you did, then `resolve_comment`.
+1. `list_mentions` is your work queue: it finds every open thread across the **whole
+   project** that @mentions you — no document need be open. (Within one open document,
+   `list_comments(mentioning: "<your username>", includeResolved: false)` is the local
+   view.) By default it returns only unhandled threads (not resolved, no reply from you);
+   pass `includeHandled: true` to see everything.
+2. For each entry: `open_document(entry.doc)`, then make the requested change (workflows
+   above), anchoring on `entry.currentText` (or `entry.quotedText` if it was deleted).
+3. `reply_comment` explaining what you did, then `resolve_comment` — that drops the
+   thread out of `list_mentions`, so the queue empties as you work.
 Orphaned threads (their anchored text was deleted) keep the original quote — use it to
 understand what the comment referred to.
 
