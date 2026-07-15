@@ -987,3 +987,63 @@ test(
   },
   30_000,
 );
+
+test(
+  'attention: the tab title counts pending mentions and a new one toasts a deep-link',
+  async () => {
+    const danaMentions = async () =>
+      (
+        (await (await fetch(`${server.url}/api/mentions?who=dana`)).json()) as {
+          mentions: unknown[];
+        }
+      ).mentions.length;
+
+    // Seed a pending mention for dana and wait until the server sweep reflects it,
+    // so dana's first poll on load already has a non-zero count.
+    await alice.call('open_document', { path: 'other.md' });
+    const seed = await alice.call<{ matches: Array<{ matchId: string }> }>('search_text', { query: 'Other' });
+    await alice.call('add_comment', { matchId: seed.matches[0]!.matchId, body: 'first ping @dana' });
+    for (let attempt = 0; attempt < 40; attempt++) {
+      if ((await danaMentions()) >= 1) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    await page.goto(`${server.url}/?name=dana`);
+    await page.waitForSelector('#surface:not([hidden]) .home');
+
+    // The tab title and sidebar badge reflect the pending count.
+    await page.waitForFunction(() => /^\(\d+\) mdio$/.test(document.title));
+    await page.waitForSelector('#inbox-badge:not([hidden])');
+
+    // A brand-new mention arrives while dana has the app open: alice @-mentions
+    // dana in a different document.
+    await alice.call('open_document', { path: 'demo.md' });
+    const { matches } = await alice.call<{ matches: Array<{ matchId: string }> }>('search_text', {
+      query: 'Demo document',
+    });
+    await alice.call('add_comment', { matchId: matches[0]!.matchId, body: 'please review this @dana' });
+
+    // A focus triggers a poll; the newly-arrived mention pops a clickable toast.
+    // Poll via repeated focus events to absorb the sync delay to the server room.
+    for (let attempt = 0; attempt < 20; attempt++) {
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      if ((await page.locator('.toast.clickable').count()) > 0) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    await page.waitForSelector('.toast.clickable');
+    const toastText = (await page.textContent('.toast.clickable'))!;
+    expect(toastText).toInclude('plosson/alice');
+    expect(toastText).toInclude('demo.md');
+
+    // Clicking the toast deep-links to the thread in that document.
+    await page.click('.toast.clickable');
+    await waitForPath('main/demo.md');
+    await page.waitForFunction(() => location.hash.includes('comment=c-'));
+    await page.waitForSelector('.comment-card.focused');
+  },
+  40_000,
+);

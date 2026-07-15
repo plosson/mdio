@@ -911,24 +911,59 @@ function wireCrud() {
   document.querySelector('#logout')!.addEventListener('click', logoutNow);
 
   // A project created (or removed) in another tab should appear on return; the
-  // inbox badge refreshes on focus too (no polling loop yet — phase 3).
+  // inbox also refreshes on focus and on a slow interval (see startAttentionPolling).
   window.addEventListener('focus', () => {
     void refreshProjects();
     refreshInboxBadge();
   });
 }
 
+/**
+ * Attention: poll the inbox on a slow interval + on focus, keep the sidebar
+ * badge and the tab title (`(2) mdio`) in sync, and toast a newly-arrived
+ * unhandled mention (click deep-links to the thread). Explicit non-goals for
+ * now: web push, sounds, and per-thread read-state beyond the handled semantics.
+ */
+const MENTION_POLL_MS = 60_000;
+/** Threads we've already surfaced (`project/doc#threadId`) — to toast only new ones. */
+let knownMentions = new Set<string>();
+let attentionPrimed = false;
+
+function mentionKey(mention: api.InboxMention): string {
+  return `${mention.project}/${mention.doc}#${mention.threadId}`;
+}
+
 /** Sidebar Inbox badge = unhandled mentions + docs with pending suggestions. */
 async function refreshInboxBadge(): Promise<void> {
-  let count = 0;
+  let inbox: api.Inbox;
   try {
-    const inbox = await api.getInbox(user.name);
-    count = inbox.mentions.length + inbox.suggestions.reduce((sum, entry) => sum + entry.pending, 0);
+    inbox = await api.getInbox(user.name);
   } catch {
     return;
   }
+  const count = inbox.mentions.length + inbox.suggestions.reduce((sum, entry) => sum + entry.pending, 0);
   inboxBadgeEl.textContent = String(count);
   inboxBadgeEl.hidden = count === 0;
+  document.title = count > 0 ? `(${count}) mdio` : 'mdio';
+
+  // A mention we hadn't seen while the app was already open → nudge with a toast.
+  // The first poll only primes the set (existing mentions aren't "new arrivals").
+  const current = new Set(inbox.mentions.map(mentionKey));
+  if (attentionPrimed) {
+    for (const mention of inbox.mentions) {
+      if (!knownMentions.has(mentionKey(mention))) {
+        toast(`${mention.request.author} mentioned you in ${mention.doc}`, {
+          onClick: () =>
+            go(
+              { kind: 'doc', project: mention.project, doc: `${mention.project}/${mention.doc}` },
+              { doc: { comment: mention.threadId } },
+            ),
+        });
+      }
+    }
+  }
+  knownMentions = current;
+  attentionPrimed = true;
 }
 
 /** Change the signed-in name live: persist it and re-join every awareness room. */
@@ -974,6 +1009,7 @@ async function init() {
     copyMcpConfig: () => void copyMcpConfig(),
   });
   void refreshInboxBadge();
+  setInterval(() => void refreshInboxBadge(), MENTION_POLL_MS);
   // Back/forward and hand-edited URLs resolve the same way as the boot path.
   onUrlChange(() => void navigate());
 }

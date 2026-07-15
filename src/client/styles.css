@@ -1432,6 +1432,16 @@ body {
   background: var(--danger);
 }
 
+.toast.clickable {
+  cursor: pointer;
+  pointer-events: auto; /* the tray is click-through; a clickable toast is not */
+}
+
+.toast.clickable::after {
+  content: ' →';
+  color: var(--ink-faint);
+}
+
 /* ── empty states ───────────────────────────────────────────────────────── */
 
 #empty-state {
