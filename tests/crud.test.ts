@@ -158,6 +158,18 @@ describe('document CRUD', () => {
     expect(await docList('papers')).toContain('sub/section/deep.md');
   });
 
+  test('create: optional content seeds the file (welcome.md path)', async () => {
+    const response = await call('POST', '/api/projects/papers/docs', {
+      path: 'welcome.md',
+      content: '# Welcome\n\nStarter text.\n',
+    });
+    expect(response.status).toBe(201);
+    expect(await Bun.file(join(vaultDir, 'papers', 'welcome.md')).text()).toBe('# Welcome\n\nStarter text.\n');
+    // The seed is plain markdown on disk; a room hydrates it as "disk"-authored text.
+    const room = await server.registry.open('papers/welcome.md');
+    expect(room.doc.getText('content').toString()).toInclude('Starter text.');
+  });
+
   test('create: duplicate 409, missing project 404, bad paths 400', async () => {
     expect((await call('POST', '/api/projects/papers/docs', { path: 'intro.md' })).status).toBe(409);
     expect((await call('POST', '/api/projects/no-such-project/docs', { path: 'x.md' })).status).toBe(404);

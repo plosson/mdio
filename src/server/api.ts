@@ -12,7 +12,7 @@
 //   GET    /api/projects/:p/search     ?q&limit   full-text search across the project
 //   GET    /api/projects/:p/mcp-config ?username  ready-to-paste MCP wiring for this project
 //   GET    /api/projects/:p/docs                  list documents ({path, title, modified})
-//   POST   /api/projects/:p/docs    {path}        create an empty document
+//   POST   /api/projects/:p/docs    {path, content?}  create a document (optional seed)
 //   PATCH  /api/projects/:p/docs/*d {project?, path?}  rename / move a document
 //   DELETE /api/projects/:p/docs/*d               delete a document
 //   GET    /api/projects/:p/docs/*d/history       NDJSON update log

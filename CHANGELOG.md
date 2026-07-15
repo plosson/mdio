@@ -8,6 +8,33 @@ headers start with the first tagged release.
 ## Unreleased
 
 ### Changed
+- **UX rework, phase 2 — Home, Inbox, Agents, and Settings surfaces.** The
+  app grew from one document surface into five, behind a small plain-DOM router
+  (no framework). `url-state` now resolves the path to a `view` discriminator
+  (`home | project | doc | agents | settings`); the hash still carries doc-view
+  state. The sidebar became global chrome: a wordmark + ⚙ settings link, Home
+  and Inbox items (Inbox shows a live badge), and a per-project section
+  (switcher, Agents item, doc list) shown only inside a project.
+  - **Home (`/`)** — greeting with live counts (`N projects · M documents ·
+    K agents connected`), a grid of project cards (doc count, last edit,
+    present-peer faces) plus ghost cards (new project / connect an agent), the
+    inbox block, recents across projects, and a first-run welcome when the vault
+    is empty. Creating the first project optionally seeds a plain `welcome.md`.
+    `/` no longer teleports into the first document.
+  - **Inbox** — part of Home's URL space (no sixth route): unhandled @mentions
+    and per-document pending-suggestion tallies aggregated across every project,
+    with a *show handled* toggle; rows deep-link to the document with the thread
+    focused. The sidebar badge refreshes on focus and after actions.
+  - **Agents (`/<project>/agents`)** — a Tailscale-style connect flow replacing
+    the MCP-config modal: the install one-liner, an editable identity whose
+    `mdio mcp install` command and raw `.mcp.json` re-render live, and a
+    ~3s peers poll that flips the status to "connected" (with a toast) when the
+    chosen identity joins, above a connected-agents list.
+  - **Settings (`/settings`)** — identity (live rename that re-joins awareness,
+    a cursor-color override honored by `withColors`), editor preferences
+    (default view mode, prose/monospace font, 68/72/80ch reading width —
+    persisted in localStorage and applied), server & CLI info, and project
+    management (rename/delete), plus logout.
 - **UX rework, phase 1 — hierarchy & trust in the document view.** The
   single document surface got real hierarchy and a coat of paint, all
   client-side (no new routes or server APIs). Design tokens (CSS custom
@@ -42,6 +69,15 @@ headers start with the first tagged release.
     a save is in flight.
 
 ### Added
+- **Surface APIs (phase 2).** `GET /api/projects/:p/docs` now returns
+  `{path, title, modified}` per document (title = first heading, modified =
+  mtime) — breaking for the old `string[]` shape; the MCP `list_documents`
+  still hands agents plain relative paths. `GET /api/mentions?who=` aggregates
+  open @mentions and per-doc pending-suggestion counts across every project
+  (Inbox + badge). `GET /api/projects/:p/peers` lists the peers in a project's
+  already-open rooms (`RoomRegistry.openRooms()` enumerates settled rooms only,
+  never opening one). `POST …/docs` accepts an optional `content` seed. All new
+  endpoints are read-only and create nothing.
 - **Per-project MCP config** — `GET /api/projects/:p/mcp-config?username=`
   returns everything needed to wire an agent into a project (binary install
   one-liner, `mdio mcp install … --project` command, and the ready-to-paste
