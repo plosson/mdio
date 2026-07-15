@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
 import { apiCreateDoc, apiCreateProject, connectPeer, startTestServer, waitFor, type TestPeer } from './helpers';
+import { registerAuthor } from '../src/shared/blame';
 import { STATE_DIR } from '../src/server/vault';
 import type { MdioServer } from '../src/server/index';
 
@@ -338,6 +339,37 @@ describe('document snapshots', () => {
     expect((await call('DELETE', movedUrl)).status).toBe(204);
     const movedSidecar = join(vaultDir, STATE_DIR, 'versions', 'renamed.md.snapshots.json');
     expect(await Bun.file(movedSidecar).exists()).toBe(false);
+  });
+
+  test('restore never re-attributes text it did not touch', async () => {
+    // Content that reaches the room from disk is blamed to "disk" at hydrate —
+    // written to the file before the room ever opens.
+    await apiCreateDoc(server, 'versions/blamed.md');
+    await Bun.write(join(vaultDir, 'versions', 'blamed.md'), 'DISK LINE ONE\nDISK LINE TWO\n');
+    const url = '/api/projects/versions/docs/blamed.md';
+    const blameNames = async () =>
+      ((await (await call('GET', `${url}/blame`)).json()) as {
+        lines: Array<{ authors: Array<{ name: string }> }>;
+      }).lines.map((line) => line.authors.map((a) => a.name));
+    expect(await blameNames()).toEqual([['disk'], ['disk']]);
+
+    // Checkpoint, then Alice rewrites line two.
+    const created = await call('POST', `${url}/snapshots`, { label: 'v1', author: 'plosson' });
+    const { id } = (await created.json()) as { id: string };
+    const alice = await peer('versions/blamed.md');
+    registerAuthor(alice.doc, { name: 'Alice', role: 'human' });
+    const at = alice.text.toString().indexOf('DISK LINE TWO');
+    alice.text.delete(at, 'DISK LINE TWO'.length);
+    alice.text.insert(at, 'ALICE LINE TWO');
+    await serverSaw('versions/blamed.md', 'ALICE LINE TWO');
+
+    // Restore as plosson. The room doc's own clientID belongs to the "disk"
+    // reconcile, so a restore registering the restorer under that ID would
+    // retroactively flip line one to "plosson" — the regression this guards.
+    expect((await call('POST', `${url}/snapshots/${id}/restore`, { author: 'plosson' })).status).toBe(200);
+    const lines = await blameNames();
+    expect(lines[0]).toEqual(['disk']); // untouched by the restore: still disk's
+    expect(lines[1]).toContain('plosson'); // the re-added text is the restorer's
   });
 
   test('restoring a missing snapshot is 404', async () => {

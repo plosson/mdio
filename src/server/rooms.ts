@@ -167,17 +167,26 @@ export class Room {
    * middle-splice used for the disk reconcile — so a restore lands in blame and
    * history and is itself reversible. Live peers see the text change, not a CRDT
    * reset (applying an old full state would fork them). Returns chars changed.
+   *
+   * The splice runs in a scratch doc with its own clientID: blame keys authors
+   * by inserting clientID, and the room doc's own ID already belongs to the
+   * hydrate-time "disk" reconcile — writing under it would retroactively
+   * re-attribute everything that ID ever inserted, and successive restores by
+   * different users would overwrite each other.
    */
   restoreContent(content: string, author: AuthorInfo): number {
-    const ytext = this.doc.getText(TEXT_KEY);
-    const before = ytext.toString();
+    const before = this.doc.getText(TEXT_KEY).toString();
     if (before === content) {
       return 0;
     }
-    this.doc.transact(() => {
-      registerAuthor(this.doc, author);
-      reconcileText(ytext, content);
+    const scratch = new Y.Doc({ gc: false });
+    Y.applyUpdate(scratch, Y.encodeStateAsUpdate(this.doc));
+    scratch.transact(() => {
+      registerAuthor(scratch, author);
+      reconcileText(scratch.getText(TEXT_KEY), content);
     });
+    Y.applyUpdate(this.doc, Y.encodeStateAsUpdate(scratch, Y.encodeStateVector(this.doc)));
+    scratch.destroy();
     return Math.abs(content.length - before.length);
   }
 
