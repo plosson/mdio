@@ -29,14 +29,24 @@ Tests are self-contained: each spawns its own server on an ephemeral port with a
   is the REST CRUD surface (`/api/projects[/:p[/docs[/*doc[/history|/blame]]]]` — see
   its header comment for the route table); create/rename/move/delete coordinate with
   `rooms.ts` (flush-and-close or discard-and-close) so no straggling persist can
-  resurrect a deleted file. Documents get stable path URLs — the server serves the app
-  shell for `/<project>/<doc-path>` and bare `/<project>` pages (view state stays in
+  resurrect a deleted file. `api.ts` also serves read-only surface data: docs list
+  metadata (`{path, title, modified}`), the cross-project inbox (`GET /api/mentions`
+  — open @mentions + per-doc pending-suggestion counts) and connected peers
+  (`GET /api/projects/:p/peers`, reads only already-open rooms via
+  `RoomRegistry.openRooms()`). The server serves the app shell for `/<project>/<doc-path>`,
+  bare `/<project>` pages, `/settings`, and `/<project>/agents` (view state stays in
   the URL hash).
 - `src/client/` — web UI, bundled (minified) by `Bun.build` at server startup (no build
-  step). CodeMirror 6 + `y-codemirror.next` for remote cursors; `remote-edits.ts` flashes
+  step). Five surfaces behind a plain-DOM router in `main.ts`: Home (`home.ts` + the
+  shared `inbox.ts` block), a project's doc view, the Agents connect page (`agents.ts`),
+  and Settings (`settings.ts`); `url-state.ts` resolves the path to a `view` discriminator
+  (`home|project|doc|agents|settings`) and keeps doc-view state (mode/comment/resolved)
+  in the hash. `surface.ts` is the shell↔surface contract, `ui.ts` the shared DOM helpers,
+  `prefs.ts` the persisted editor preferences (default mode, font, reading width).
+  CodeMirror 6 + `y-codemirror.next` for remote cursors; `remote-edits.ts` flashes
   transient author-attributed highlights on remote inserts; `comments.ts` (thread panel +
   range highlights), `preview.ts` (markdown-it + mermaid pane), `history.ts` (replay
-  slider), `url-state.ts` (doc/preview/comment state in the URL hash).
+  slider).
 - `src/shared/` — contracts both sides import: `blame.ts` (authorship), `comments.ts`
   (comment threads, anchors, mentions), `suggestions.ts` (proposed edits with
   relative-position anchors: agents propose, humans accept/reject).
@@ -111,8 +121,9 @@ Tests are self-contained: each spawns its own server on an ephemeral port with a
 
 `GET /api/projects/<p>/mcp-config?username=<owner/agent>` returns all of the below
 ready-made (install one-liner, `mcp install` command, `.mcp.json` entry) with the
-caller-visible server URL; the web UI's 🤖 button in the project bar shows it with
-copy buttons.
+caller-visible server URL; the web UI's Agents page (`/<project>/agents`, reached
+from the sidebar's Agents item) renders it as a Tailscale-style connect flow with
+copy buttons and a live "waiting → connected" status.
 
 Easiest — install the binary from a running server, then wire the project:
 

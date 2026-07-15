@@ -94,11 +94,17 @@ export async function startServer({
         case '/styles.css':
           return new Response(styles, { headers: { 'Content-Type': 'text/css; charset=utf-8' } });
         default:
-          // Documents live at stable paths (/project/notes/plan.md) and bare
-          // project pages at /project: serve the app shell for both, 404 the rest.
+          // Client surfaces served by the app shell: documents at stable paths
+          // (/project/notes/plan.md), bare project pages (/project), the settings
+          // page (/settings), and a project's agents page (/project/agents — two
+          // extension-less segments where the second is exactly "agents"). Every
+          // other path 404s.
           if (
             req.method === 'GET' &&
-            (/\.(md|markdown|txt)$/i.test(url.pathname) || /^\/[^/.]+\/?$/.test(url.pathname))
+            (/\.(md|markdown|txt)$/i.test(url.pathname) ||
+              /^\/[^/.]+\/?$/.test(url.pathname) ||
+              url.pathname === '/settings' ||
+              /^\/[^/.]+\/agents\/?$/.test(url.pathname))
           ) {
             return new Response(indexHtml, {
               headers: { 'Content-Type': 'text/html; charset=utf-8' },

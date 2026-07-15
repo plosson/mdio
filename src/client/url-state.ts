@@ -1,22 +1,32 @@
 /**
- * Navigation state: the document is the URL path (/project/notes/plan.md) and
- * a bare project page is /project, so links are stable, shareable paths. View
- * state stays in the hash as query-style params (#mode=both&comment=c-xyz).
+ * Navigation state. The path names a *surface*: `/` is Home, `/settings` is
+ * Settings, `/<project>/agents` is the Agents page, `/<project>` is a project
+ * page, and `/<project>/<doc>.md` is a document — so links are stable, shareable
+ * paths. Within a document, view state (edit/both/read mode, focused comment,
+ * resolved filter) stays in the hash as query-style params (#mode=both&comment=…).
  *
- * Document switches push a history entry (back/forward navigates documents);
- * view-state changes (mode, comment focus, filters) replace the current entry
- * so they survive reload and sharing without polluting history.
- * pushState/replaceState don't fire popstate, so only user navigation
- * (back/forward, hash edits) triggers the listener — no self-echo guard needed.
+ * Surface switches push a history entry (back/forward navigates surfaces);
+ * doc-view-state changes replace the current entry so they survive reload and
+ * sharing without polluting history. pushState/replaceState don't fire popstate,
+ * so only real user navigation (back/forward, hash edits) triggers the listener.
  */
+
+import { getDefaultMode } from './prefs';
 
 /** Editor layout: editor only, editor + preview split, or preview only. */
 export type ViewMode = 'edit' | 'both' | 'read';
 
-export interface UrlState {
-  doc: string | null;
-  /** The doc's project (first path segment), or a doc-less project page. */
-  project: string | null;
+/** The surface a URL resolves to. Documents always end in an editable extension,
+ *  which is what makes the trailing `agents` segment and `/settings` unambiguous. */
+export type View =
+  | { kind: 'home' }
+  | { kind: 'settings' }
+  | { kind: 'agents'; project: string }
+  | { kind: 'project'; project: string }
+  | { kind: 'doc'; project: string; doc: string };
+
+/** Hash-borne state that only applies inside a document view. */
+export interface DocViewState {
   mode: ViewMode;
   comment: string | null;
   resolved: boolean;
@@ -24,55 +34,100 @@ export interface UrlState {
 
 const DOC_EXTENSION = /\.(md|markdown|txt)$/i;
 
-function decodePath(pathname: string): string | null {
+/** Decode a pathname into its slash-separated segments (empty for `/`). */
+function pathSegments(pathname: string): string[] {
   const raw = pathname.replace(/^\/+/, '').replace(/\/+$/, '');
-  if (!raw) {
-    return null;
-  }
-  return raw.split('/').map(decodeURIComponent).join('/');
+  return raw ? raw.split('/').map(decodeURIComponent) : [];
 }
 
 function encodePath(path: string): string {
   return `/${path.split('/').map(encodeURIComponent).join('/')}`;
 }
 
-function readMode(raw: string | null): ViewMode {
-  return raw === 'both' || raw === 'read' ? raw : 'edit';
+export function readView(): View {
+  const segments = pathSegments(location.pathname);
+  if (segments.length === 0) {
+    return { kind: 'home' };
+  }
+  if (segments.length === 1 && segments[0] === 'settings') {
+    return { kind: 'settings' };
+  }
+  const path = segments.join('/');
+  if (DOC_EXTENSION.test(path)) {
+    return { kind: 'doc', project: segments[0]!, doc: path };
+  }
+  if (segments.length === 2 && segments[1] === 'agents') {
+    return { kind: 'agents', project: segments[0]! };
+  }
+  // Any other extension-less path is a project page (its first segment).
+  return { kind: 'project', project: segments[0]! };
 }
 
-export function readUrlState(): UrlState {
+/** The URL path for a view — use for links and navigation. */
+export function viewPath(view: View): string {
+  switch (view.kind) {
+    case 'home':
+      return '/';
+    case 'settings':
+      return '/settings';
+    case 'agents':
+      return encodePath(`${view.project}/agents`);
+    case 'project':
+      return encodePath(view.project);
+    case 'doc':
+      return encodePath(view.doc);
+  }
+}
+
+function readMode(raw: string | null): ViewMode {
+  // An explicit mode wins; otherwise the URL is showing the user's default,
+  // which is why serialize omits the mode when it equals the default.
+  if (raw === 'both' || raw === 'read' || raw === 'edit') {
+    return raw;
+  }
+  return getDefaultMode();
+}
+
+export function readDocViewState(): DocViewState {
   const params = new URLSearchParams(location.hash.slice(1));
-  const path = decodePath(location.pathname);
-  const isDoc = path !== null && DOC_EXTENSION.test(path);
   return {
-    doc: isDoc ? path : null,
-    project: isDoc ? path!.split('/')[0]! : path,
     mode: readMode(params.get('mode')),
     comment: params.get('comment'),
     resolved: params.get('resolved') === '1',
   };
 }
 
-export function writeUrlState(partial: Partial<UrlState>, { push = false } = {}): void {
-  const current = readUrlState();
-  const next = { ...current, ...partial };
-  // A document names its project; only doc-less states keep an explicit one.
-  if (partial.doc && partial.project === undefined) {
-    next.project = partial.doc.split('/')[0]!;
-  }
+function serializeDocViewState(state: DocViewState): string {
   const params = new URLSearchParams();
-  if (next.mode !== 'edit') {
-    params.set('mode', next.mode);
+  // Omit the mode when it equals the user's default — the URL stays clean and
+  // still restores to what they expect (readMode fills the default back in).
+  if (state.mode !== getDefaultMode()) {
+    params.set('mode', state.mode);
   }
-  if (next.comment) {
-    params.set('comment', next.comment);
+  if (state.comment) {
+    params.set('comment', state.comment);
   }
-  if (next.resolved) {
+  if (state.resolved) {
     params.set('resolved', '1');
   }
-  const serialized = params.toString();
-  const path = next.doc ? encodePath(next.doc) : next.project ? encodePath(next.project) : '/';
-  const url = `${path}${location.search}${serialized ? `#${serialized}` : ''}`;
+  return params.toString();
+}
+
+/**
+ * Navigate to a surface. Only `doc` views carry hash state: by default a doc
+ * navigation preserves the sticky mode/resolved but clears comment focus; pass
+ * `doc` to override. Non-doc surfaces drop the hash entirely.
+ */
+export function writeView(
+  view: View,
+  { push = false, doc }: { push?: boolean; doc?: Partial<DocViewState> } = {},
+): void {
+  let hash = '';
+  if (view.kind === 'doc') {
+    const next: DocViewState = { ...readDocViewState(), comment: null, ...doc };
+    hash = serializeDocViewState(next);
+  }
+  const url = `${viewPath(view)}${location.search}${hash ? `#${hash}` : ''}`;
   if (push) {
     history.pushState(null, '', url);
   } else {
@@ -80,6 +135,14 @@ export function writeUrlState(partial: Partial<UrlState>, { push = false } = {})
   }
 }
 
-export function onUrlChange(handler: (state: UrlState) => void): void {
-  window.addEventListener('popstate', () => handler(readUrlState()));
+/** Replace only the hash doc-view-state (mode/comment/resolved); path unchanged. */
+export function writeDocViewState(partial: Partial<DocViewState>): void {
+  const next = { ...readDocViewState(), ...partial };
+  const hash = serializeDocViewState(next);
+  const url = `${location.pathname}${location.search}${hash ? `#${hash}` : ''}`;
+  history.replaceState(null, '', url);
+}
+
+export function onUrlChange(handler: () => void): void {
+  window.addEventListener('popstate', () => handler());
 }
