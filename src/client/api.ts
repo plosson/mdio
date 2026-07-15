@@ -55,8 +55,9 @@ export async function listDocs(project: string): Promise<DocMeta[]> {
   return (await api<{ docs: DocMeta[] }>('GET', `/api/projects/${encodeURIComponent(project)}/docs`)).docs;
 }
 
-export function createDoc(project: string, path: string): Promise<{ path: string }> {
-  return api('POST', `/api/projects/${encodeURIComponent(project)}/docs`, { path });
+/** Create a document, optionally seeded with plain markdown content. */
+export function createDoc(project: string, path: string, content?: string): Promise<{ path: string }> {
+  return api('POST', `/api/projects/${encodeURIComponent(project)}/docs`, { path, content });
 }
 
 /** Rename within the project ({path}), move across projects ({project}), or both. */

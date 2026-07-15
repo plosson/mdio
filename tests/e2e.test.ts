@@ -514,7 +514,9 @@ test(
       await visitor.waitForSelector('#me:not([hidden])');
       expect(await visitor.textContent('#me-name')).toBe('Dana');
       expect(await visitor.evaluate(() => localStorage.getItem('mdio-name'))).toBe('Dana');
-      await visitor.waitForSelector('.cm-content'); // the editor loads only after login
+      // `/` is Home now: it renders the surface, it does not teleport into a doc.
+      await visitor.waitForSelector('#surface:not([hidden]) .home');
+      expect(await visitor.evaluate(() => location.pathname)).toBe('/');
 
       // Reload skips the prompt.
       await visitor.reload();
@@ -753,21 +755,135 @@ test(
 );
 
 test(
-  'the project MCP-config dialog shows copyable wiring for an agent',
+  'the Agents page shows copyable wiring and a live identity, reachable by deep link',
   async () => {
-    await page.goto(`${server.url}/main/demo.md?name=Human`);
-    await page.waitForSelector('.cm-content');
+    // Deep-link straight to the agents page (SPA fallback serves it, reload works).
+    await page.goto(`${server.url}/main/agents?name=Human`);
+    await page.waitForSelector('#surface:not([hidden]) .agents');
+    await waitForPath('main/agents');
 
-    await projectMenu('project-mcp');
-    await page.waitForSelector('#mcp-config:not([hidden]) .mcp-block pre');
-    const body = (await page.textContent('#mcp-config-body'))!;
+    // Install command, the live mdio-mcp-install command, and the raw .mcp.json.
+    await page.waitForSelector('.agents .command-pre');
+    const body = (await page.textContent('.agents'))!;
     expect(body).toInclude('install.sh'); // the binary install one-liner
     expect(body).toInclude('--project main'); // the mdio mcp install command
-    expect(body).toInclude('"MDIO_PROJECT": "main"'); // the raw .mcp.json entry
     expect(body).toInclude('Human/claude'); // owner/agent suggested from the login
 
-    await page.click('#mcp-config-close');
-    await page.waitForSelector('#mcp-config', { state: 'hidden' });
+    // The .mcp.json disclosure carries the project env.
+    await page.click('.agents-disclosure summary');
+    expect(await page.textContent('.agents-disclosure')).toInclude('"MDIO_PROJECT": "main"');
+
+    // Editing the identity re-renders the command live.
+    await page.fill('.agents-identity', 'Human/scribe');
+    await page.waitForFunction(() =>
+      document.querySelector('.agents')?.textContent?.includes('--username Human/scribe'),
+    );
+
+    // Reaching it from the project ⋯ menu lands on the same page.
+    await page.goto(`${server.url}/main/demo.md`);
+    await page.waitForSelector('.cm-content');
+    await projectMenu('project-mcp');
+    await waitForPath('main/agents');
+    await page.waitForSelector('#surface:not([hidden]) .agents');
+  },
+  30_000,
+);
+
+test(
+  'the Agents page flips to "connected" when a matching MCP peer joins',
+  async () => {
+    await page.goto(`${server.url}/main/agents?name=Human`);
+    await page.waitForSelector('#surface:not([hidden]) .agents');
+    // Wire the identity to alice's, who is connected to a doc in this project.
+    await page.fill('.agents-identity', 'plosson/alice');
+    await alice.call('open_document', { path: 'demo.md' });
+
+    // The ~3s poll notices the peer and the status flips to connected.
+    await page.waitForSelector('.agents-status.connected', { timeout: 15_000 });
+    expect(await page.textContent('.agents-status')).toInclude('plosson/alice connected');
+    // …and the peer shows up in the connected-agents list.
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll('.agents-peer-name')].some((el) => el.textContent === 'plosson/alice'),
+    );
+  },
+  30_000,
+);
+
+test(
+  'Home shows project cards and recents; a card opens the project',
+  async () => {
+    await page.goto(`${server.url}/?name=Human`);
+    await page.waitForSelector('#surface:not([hidden]) .home');
+    await waitForPath('');
+
+    // Greeting counts and a card for the main project.
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll('.project-card .card-title')].some((el) => el.textContent === 'main'),
+    );
+    await waitForText('.home-counts', 'documents');
+
+    // Clicking the main card opens the project (its first document).
+    await page.click('.project-card:has(.card-title:text-is("main"))');
+    await page.waitForSelector('.cm-content');
+    await waitForSelected('main');
+  },
+  30_000,
+);
+
+test(
+  'the inbox surfaces a mention and deep-links to the focused thread, surviving reload',
+  async () => {
+    // Human mentions a *different* human (dana) so the thread is unhandled for dana.
+    await page.goto(`${server.url}/main/other.md?name=Human`);
+    await page.waitForSelector('.cm-content');
+    await page.evaluate(() => {
+      const view = (globalThis as unknown as { mdioView: { state: any; dispatch: any } }).mdioView;
+      const at = view.state.doc.toString().indexOf('Other');
+      view.dispatch({ selection: { anchor: at, head: at + 'Other'.length } });
+    });
+    await docMenu('comment-add');
+    await page.fill('textarea[data-draft="new-comment"]', 'please look at this, @dana');
+    await page.click('#comments-list .comment-btn.primary');
+    await waitForText('#comments-list', 'please look');
+
+    // dana's Home inbox shows the mention row (server sweep sees the live room).
+    await page.goto(`${server.url}/?name=dana`);
+    await page.waitForSelector('#surface:not([hidden]) .home');
+    await waitForText('.inbox-list', 'please look');
+
+    // Clicking the row opens the doc with the thread focused; the deep link reloads.
+    await page.click('.inbox-row');
+    await waitForPath('main/other.md');
+    await page.waitForFunction(() => location.hash.includes('comment=c-'));
+    await page.waitForSelector('.comment-card.focused');
+    await page.reload();
+    await page.waitForSelector('.cm-content');
+    await page.waitForSelector('.comment-card.focused');
+    expect(await page.textContent('.comment-card.focused')).toInclude('please look');
+  },
+  40_000,
+);
+
+test(
+  'Settings renames a project and applies an editor preference, reachable by deep link',
+  async () => {
+    await page.goto(`${server.url}/settings?name=Human`);
+    await page.waitForSelector('#surface:not([hidden]) .settings');
+    await waitForPath('settings');
+
+    // Editor prefs: switch the reading width and confirm it lands on :root.
+    await page.click('.settings-nav-item:text-is("Editor")');
+    await page.click('.seg-btn:text-is("80")');
+    await page.waitForFunction(
+      () => document.documentElement.style.getPropertyValue('--reading-width') === '80ch',
+    );
+    expect(await page.evaluate(() => localStorage.getItem('mdio-reading-width'))).toBe('80');
+
+    // Reset it so later navigation is unaffected.
+    await page.click('.seg-btn:text-is("72")');
+    await page.waitForFunction(
+      () => document.documentElement.style.getPropertyValue('--reading-width') === '72ch',
+    );
   },
   30_000,
 );

@@ -10,10 +10,23 @@ import { commentHighlightExtension, focusThread, setShowResolved, wireComments }
 import { setMode, wirePreview } from './preview';
 import { closeHistory, openHistory } from './history';
 import { closeVersions, openVersions } from './versions';
-import { openMcpConfig } from './mcp-config';
 import { suggestionHighlightExtension, wireSuggestions } from './suggestions';
-import { onUrlChange, readUrlState, writeUrlState, type UrlState } from './url-state';
+import {
+  onUrlChange,
+  readDocViewState,
+  readView,
+  viewPath,
+  writeDocViewState,
+  writeView,
+  type DocViewState,
+  type View,
+} from './url-state';
 import { askChoice, askConfirm, askText, toast } from './dialogs';
+import { renderHome } from './home';
+import { renderAgents } from './agents';
+import { renderSettings } from './settings';
+import { applyEditorPrefs } from './prefs';
+import type { SurfaceContext } from './surface';
 import * as api from './api';
 import { TEXT_KEY, registerAuthor } from '../shared/blame';
 
@@ -26,6 +39,8 @@ const PALETTE = [
 ];
 
 const NAME_KEY = 'mdio-name';
+/** Optional cursor-color override set in Settings; without it color is hash-derived. */
+const COLOR_KEY = 'mdio-color';
 
 /** Humans must not contain "/" — it is reserved for the owner/agent convention. */
 function usernameError(name: string): string | null {
@@ -50,6 +65,11 @@ function withColors(name: string) {
     hash = (hash * 31 + char.charCodeAt(0)) | 0;
   }
   const swatch = PALETTE[Math.abs(hash) % PALETTE.length]!;
+  // A Settings override wins over the hash-derived color, if it is a valid hex.
+  const override = localStorage.getItem(COLOR_KEY);
+  if (override && /^#[0-9a-fA-F]{6}$/.test(override)) {
+    return { name, color: override, colorLight: `${override}33` };
+  }
   return { name, color: swatch.color, colorLight: swatch.light };
 }
 
@@ -112,6 +132,13 @@ const activityEl = document.querySelector('#activity')! as HTMLElement;
 const docSearch = document.querySelector('#doc-search')! as HTMLInputElement;
 const docNewButton = document.querySelector('#doc-new')! as HTMLButtonElement;
 const projectMenuEl = document.querySelector('#project-menu')! as HTMLElement;
+const surfaceEl = document.querySelector('#surface')! as HTMLElement;
+const projectSectionEl = document.querySelector('#project-section')! as HTMLElement;
+const navHomeButton = document.querySelector('#nav-home')! as HTMLButtonElement;
+const navInboxButton = document.querySelector('#nav-inbox')! as HTMLButtonElement;
+const navAgentsButton = document.querySelector('#nav-agents')! as HTMLButtonElement;
+const inboxBadgeEl = document.querySelector('#inbox-badge')! as HTMLElement;
+const settingsButton = document.querySelector('#settings-open')! as HTMLButtonElement;
 
 let current: {
   provider: WebsocketProvider;
@@ -292,8 +319,10 @@ function teardownEditor() {
   }
 }
 
-/** Centered empty state in the main pane — no project yet, or an empty project. */
+/** Centered empty state in the main pane — an empty project's doc list. */
 function showEmptyState(): void {
+  surfaceEl.hidden = true;
+  surfaceEl.replaceChildren();
   headerEl.hidden = true;
   workspaceEl.hidden = true;
   emptyStateEl.hidden = false;
@@ -305,18 +334,16 @@ function showEmptyState(): void {
   const actions = document.createElement('div');
   actions.className = 'empty-actions';
 
-  if (currentProject) {
-    heading.textContent = currentProject;
-    sub.textContent = 'No documents yet';
-    actions.append(
-      emptyButton('＋ Create a document', 'primary', () => void newDocFlow()),
-      emptyButton('Connect an agent', 'ghost', () => openMcpConfig(currentProject!, `${user.name}/claude`)),
-    );
-  } else {
-    heading.textContent = 'Welcome to mdio';
-    sub.textContent = 'Live markdown for humans and AI agents. Create a project to begin.';
-    actions.append(emptyButton('＋ Create your first project', 'primary', () => void newProjectFlow()));
-  }
+  heading.textContent = currentProject ?? 'mdio';
+  sub.textContent = 'No documents yet';
+  actions.append(
+    emptyButton('＋ Create a document', 'primary', () => void newDocFlow()),
+    emptyButton('Connect an agent', 'ghost', () => {
+      if (currentProject) {
+        go({ kind: 'agents', project: currentProject });
+      }
+    }),
+  );
 
   box.append(heading, sub, actions);
   emptyStateEl.replaceChildren(box);
@@ -340,13 +367,16 @@ function closeDocument() {
 }
 
 function openDocument(path: string, urlMode: 'push' | 'replace' | 'none' = 'push') {
+  const docView: View = { kind: 'doc', project: path.split('/')[0]!, doc: path };
   if (urlMode === 'push') {
-    writeUrlState({ doc: path, comment: null }, { push: true });
+    writeView(docView, { push: true });
   } else if (urlMode === 'replace') {
-    writeUrlState({ doc: path });
+    writeView(docView);
   }
   teardownEditor();
   currentPath = path;
+  surfaceEl.hidden = true;
+  surfaceEl.replaceChildren();
   headerEl.hidden = false;
   workspaceEl.hidden = false;
   emptyStateEl.hidden = true;
@@ -399,10 +429,10 @@ function openDocument(path: string, urlMode: 'push' | 'replace' | 'none' = 'push
   });
   const cleanupRemoteEdits = wireRemoteEdits(view, ytext, provider, doc.clientID);
   const cleanupComments = wireComments(view, doc, user, (state) =>
-    writeUrlState({ comment: state.comment, resolved: state.resolved }),
+    writeDocViewState({ comment: state.comment, resolved: state.resolved }),
   );
   const cleanupSuggestions = wireSuggestions(view, doc, user);
-  const cleanupPreview = wirePreview(ytext, (mode) => writeUrlState({ mode }));
+  const cleanupPreview = wirePreview(ytext, (mode) => writeDocViewState({ mode }));
   const cleanup = () => {
     ytext.unobserve(refreshTitle);
     if (titleTimer) {
@@ -426,13 +456,9 @@ function renderMe() {
   meName.textContent = user.name;
   meName.style.background = user.color;
   me.hidden = false;
-  document.querySelector('#logout')!.addEventListener('click', () => {
-    localStorage.removeItem(NAME_KEY);
-    location.reload();
-  });
 }
 
-function applyViewState(state: UrlState) {
+function applyDocViewState(state: DocViewState) {
   setMode(state.mode);
   setShowResolved(state.resolved);
   focusThread(state.comment);
@@ -463,12 +489,16 @@ function docLabel(doc: SidebarDoc): string {
   return doc.title ?? doc.path.slice(doc.path.lastIndexOf('/') + 1);
 }
 
-/** Sidebar chrome that only makes sense inside a project (search, new-doc, ⋯). */
+/** Which sidebar nav item reads as active for the surface being shown. */
+function setActiveNav(kind: View['kind']): void {
+  navHomeButton.classList.toggle('active', kind === 'home');
+  navInboxButton.classList.toggle('active', false); // Inbox lives on Home; never a separate active state
+  navAgentsButton.classList.toggle('active', kind === 'agents');
+}
+
+/** Show the per-project sidebar section (switcher, docs, agents) only inside a project. */
 function renderSidebar(): void {
-  const inProject = currentProject !== null;
-  docSearch.hidden = !inProject;
-  docNewButton.hidden = !inProject;
-  projectMenuEl.hidden = !inProject;
+  projectSectionEl.hidden = currentProject === null;
 }
 
 function renderProjectSelect() {
@@ -508,34 +538,126 @@ async function loadProject(project: string | null): Promise<void> {
   renderDocList();
 }
 
-async function navigate(state: UrlState, urlMode: 'replace' | 'none') {
-  const project = state.doc?.split('/')[0] ?? state.project;
-  const target = project && projects.includes(project) ? project : projects[0] ?? null;
-  if (target !== currentProject) {
-    await loadProject(target);
+/** Mount a full-pane surface (Home / Agents / Settings) into #surface. */
+function mountSurface(render: (host: HTMLElement, ctx: SurfaceContext) => void): void {
+  teardownEditor();
+  headerEl.hidden = true;
+  workspaceEl.hidden = true;
+  emptyStateEl.hidden = true;
+  emptyStateEl.replaceChildren();
+  surfaceEl.hidden = false;
+  surfaceEl.replaceChildren();
+  surfaceEl.scrollTop = 0;
+  render(surfaceEl, surfaceContext());
+}
+
+/** The router: read the URL, mount the matching surface. */
+async function navigate(): Promise<void> {
+  const view = readView();
+  setActiveNav(view.kind);
+  switch (view.kind) {
+    case 'home':
+      await loadProject(null);
+      mountSurface(renderHome);
+      return;
+    case 'settings':
+      await loadProject(null);
+      mountSurface(renderSettings);
+      return;
+    case 'agents':
+      await enterAgents(view.project);
+      return;
+    case 'project':
+      await enterProject(view.project);
+      return;
+    case 'doc':
+      await enterDoc(view);
+      return;
   }
-  const doc = state.doc && docs.some((d) => d.path === state.doc) ? state.doc : docs[0]?.path ?? null;
-  if (doc && doc !== currentPath) {
-    // A fallback doc must normalize the URL even on back/forward navigation,
-    // or the address bar keeps the stale path.
-    openDocument(doc, doc === state.doc && urlMode === 'none' ? 'none' : 'replace');
-  } else if (!doc) {
+}
+
+/** Navigate to a view (writes the URL, then renders it). Pushes history by default. */
+function go(view: View, opts: { push?: boolean; doc?: Partial<DocViewState> } = {}): void {
+  writeView(view, { push: opts.push ?? true, doc: opts.doc });
+  void navigate();
+}
+
+/** Render a document surface for a doc view, falling back / normalizing the URL. */
+async function enterDoc(view: Extract<View, { kind: 'doc' }>): Promise<void> {
+  const project = projects.includes(view.project) ? view.project : projects[0] ?? null;
+  if (project !== currentProject) {
+    await loadProject(project);
+  } else {
+    renderSidebar();
+  }
+  const target = docs.some((d) => d.path === view.doc) ? view.doc : docs[0]?.path ?? null;
+  if (!target) {
+    // The project has no documents: show its empty state, normalize to /project.
     closeDocument();
-    writeUrlState({ doc: null, project: currentProject });
+    if (currentProject) {
+      writeView({ kind: 'project', project: currentProject });
+    }
+    return;
   }
-  applyViewState(state);
+  if (target !== currentPath) {
+    // A fallback (target ≠ requested) normalizes the URL; an exact hit keeps it.
+    openDocument(target, target === view.doc ? 'none' : 'replace');
+  }
+  applyDocViewState(readDocViewState());
 }
 
 /** Open a project on the doc given (or its first doc), replacing the dead URL. */
-async function enterProject(project: string | null, doc?: string) {
-  await loadProject(project);
-  const target = doc && docs.some((d) => d.path === doc) ? doc : docs[0]?.path;
-  if (target) {
-    openDocument(target, 'replace');
+async function enterProject(project: string | null, doc?: string): Promise<void> {
+  const target = project && projects.includes(project) ? project : projects[0] ?? null;
+  if (!target) {
+    // No projects at all — Home is the only sensible place.
+    go({ kind: 'home' }, { push: false });
+    return;
+  }
+  await loadProject(target);
+  const wanted = doc && docs.some((d) => d.path === doc) ? doc : docs[0]?.path;
+  if (wanted) {
+    openDocument(wanted, 'replace');
   } else {
     closeDocument();
-    writeUrlState({ doc: null, project: currentProject, comment: null });
+    writeView({ kind: 'project', project: target });
   }
+}
+
+/** Render the Agents page for a project (loads the project into the sidebar too). */
+async function enterAgents(project: string): Promise<void> {
+  const target = projects.includes(project) ? project : projects[0] ?? null;
+  if (!target) {
+    go({ kind: 'home' }, { push: false });
+    return;
+  }
+  if (target !== currentProject) {
+    await loadProject(target);
+  }
+  if (target !== project) {
+    writeView({ kind: 'agents', project: target });
+  }
+  mountSurface((host, ctx) => renderAgents(host, ctx, target));
+}
+
+/** The callback surface renderers use to drive the shell. */
+function surfaceContext(): SurfaceContext {
+  return {
+    me: user,
+    projects,
+    go,
+    newProject: newProjectFlow,
+    renameProject: renameProjectByName,
+    deleteProject: deleteProjectByName,
+    reloadProjects: async () => {
+      await refreshProjects();
+      return projects;
+    },
+    refreshInboxBadge,
+    setName: changeName,
+    setColor: changeColor,
+    logout: logoutNow,
+  };
 }
 
 /** Run a CRUD action; API failures (conflicts, reserved names, …) surface as toasts. */
@@ -563,32 +685,65 @@ async function refreshProjects(): Promise<void> {
   renderDocList();
 }
 
-// ── CRUD flows (shared by the menus, sidebar buttons, and empty states) ──────
+// ── CRUD flows (shared by the menus, sidebar buttons, surfaces, empty states) ──
+
+/** Starter markdown for a freshly-seeded welcome.md — plain content, no CRDT metadata. */
+const WELCOME_SEED = `# Welcome to your project
+
+This is a live document. Everything you type is shared instantly with anyone —
+human or AI agent — who opens it.
+
+## Try it
+
+- Select some text and press **＋ comment** in the ⋯ menu to start a thread.
+- Invite an agent from the **Agents** page in the sidebar; it joins as a peer,
+  with its own cursor, and can propose edits you accept or reject.
+- Open **Both** mode (top-right) to see the rendered markdown beside the editor.
+
+Delete this file whenever you're ready to make the project your own.
+`;
 
 async function newProjectFlow(): Promise<void> {
   const name = (await askText({ title: 'New project', hint: 'Name for the new project', confirmLabel: 'Create' }))?.trim();
   if (!name) {
     return;
   }
+  // Offer a starter document only for the very first project (the first-run path).
+  const isFirstProject = projects.length === 0;
   await attempt(async () => {
     await api.createProject(name);
+    if (isFirstProject) {
+      const seed = await askConfirm({
+        title: `Seed “${name}” with a welcome document?`,
+        body: 'Adds a welcome.md with a short walkthrough. You can delete it anytime.',
+        confirmLabel: 'Add welcome.md',
+      });
+      if (seed) {
+        await api.createDoc(name, 'welcome.md', WELCOME_SEED);
+      }
+    }
     projects = await api.listProjects();
     await enterProject(name);
+    refreshInboxBadge();
     toast(`Created ${name}`);
   });
 }
 
+/** Rename the current project (⋯ menu). */
 async function renameProjectFlow(): Promise<void> {
-  if (!currentProject) {
-    return;
+  if (currentProject) {
+    await renameProjectByName(currentProject);
   }
-  const from = currentProject;
+}
+
+/** Rename a project by name (used by the ⋯ menu and Settings). */
+async function renameProjectByName(from: string): Promise<void> {
   const to = (await askText({ title: 'Rename project', initial: from, confirmLabel: 'Rename' }))?.trim();
   if (!to || to === from) {
     return;
   }
   await attempt(async () => {
-    const rest = currentPath?.slice(from.length);
+    const rest = currentProject === from && currentPath ? currentPath.slice(from.length) : null;
     await api.renameProject(from, to);
     projects = await api.listProjects();
     await enterProject(to, rest ? `${to}${rest}` : undefined);
@@ -596,11 +751,15 @@ async function renameProjectFlow(): Promise<void> {
   });
 }
 
+/** Delete the current project (⋯ menu). */
 async function deleteProjectFlow(): Promise<void> {
-  if (!currentProject) {
-    return;
+  if (currentProject) {
+    await deleteProjectByName(currentProject);
   }
-  const name = currentProject;
+}
+
+/** Delete a project by name (used by the ⋯ menu and Settings). */
+async function deleteProjectByName(name: string): Promise<void> {
   const ok = await askConfirm({
     title: `Delete project “${name}”?`,
     body: 'This deletes the project and all of its documents. This cannot be undone.',
@@ -614,6 +773,7 @@ async function deleteProjectFlow(): Promise<void> {
     await api.deleteProject(name);
     projects = await api.listProjects();
     await enterProject(projects[0] ?? null);
+    refreshInboxBadge();
     toast(`Deleted ${name}`);
   });
 }
@@ -737,22 +897,16 @@ function wireCrud() {
   wireMenu('#project-menu');
   wireMenu('#doc-menu');
 
-  projectSelect.addEventListener('change', async () => {
-    await loadProject(projectSelect.value);
-    if (docs[0]) {
-      openDocument(docs[0].path);
-    } else {
-      closeDocument();
-      writeUrlState({ doc: null, project: currentProject, comment: null }, { push: true });
-    }
+  projectSelect.addEventListener('change', () => {
+    // Switching projects opens the project page (which opens its first doc).
+    go({ kind: 'project', project: projectSelect.value });
   });
 
+  // The old MCP-config modal is now the Agents page.
   document.querySelector('#project-mcp')!.addEventListener('click', () => {
-    if (!currentProject) {
-      return;
+    if (currentProject) {
+      go({ kind: 'agents', project: currentProject });
     }
-    // Humans can't contain "/", so <me>/claude is a valid owner/agent suggestion.
-    void openMcpConfig(currentProject, `${user.name}/claude`);
   });
 
   document.querySelector('#project-new')!.addEventListener('click', () => void newProjectFlow());
@@ -763,19 +917,77 @@ function wireCrud() {
   document.querySelector('#doc-move')!.addEventListener('click', () => void moveDocFlow());
   document.querySelector('#doc-delete')!.addEventListener('click', () => void deleteDocFlow());
 
-  // A project created (or removed) in another tab should appear on return.
-  window.addEventListener('focus', () => void refreshProjects());
+  // Global chrome: Home, Inbox (Home + focus its block), Agents, Settings.
+  navHomeButton.addEventListener('click', () => go({ kind: 'home' }));
+  navInboxButton.addEventListener('click', () => go({ kind: 'home' }, { doc: { comment: null } }));
+  navAgentsButton.addEventListener('click', () => {
+    if (currentProject) {
+      go({ kind: 'agents', project: currentProject });
+    }
+  });
+  settingsButton.addEventListener('click', () => go({ kind: 'settings' }));
+  document.querySelector('#logout')!.addEventListener('click', logoutNow);
+
+  // A project created (or removed) in another tab should appear on return; the
+  // inbox badge refreshes on focus too (no polling loop yet — phase 3).
+  window.addEventListener('focus', () => {
+    void refreshProjects();
+    refreshInboxBadge();
+  });
+}
+
+/** Sidebar Inbox badge = unhandled mentions + docs with pending suggestions. */
+async function refreshInboxBadge(): Promise<void> {
+  let count = 0;
+  try {
+    const inbox = await api.getInbox(user.name);
+    count = inbox.mentions.length + inbox.suggestions.reduce((sum, entry) => sum + entry.pending, 0);
+  } catch {
+    return;
+  }
+  inboxBadgeEl.textContent = String(count);
+  inboxBadgeEl.hidden = count === 0;
+}
+
+/** Change the signed-in name live: persist it and re-join every awareness room. */
+function changeName(name: string): void {
+  localStorage.setItem(NAME_KEY, name);
+  user = withColors(name);
+  renderMe();
+  current?.provider.awareness.setLocalStateField('user', user);
+  if (current) {
+    registerAuthor(current.doc, { name: user.name, color: user.color, role: 'human' });
+  }
+}
+
+/** Change the cursor color override live (null clears it back to hash-derived). */
+function changeColor(color: string | null): void {
+  if (color) {
+    localStorage.setItem(COLOR_KEY, color);
+  } else {
+    localStorage.removeItem(COLOR_KEY);
+  }
+  user = withColors(user.name);
+  renderMe();
+  current?.provider.awareness.setLocalStateField('user', user);
+}
+
+function logoutNow(): void {
+  localStorage.removeItem(NAME_KEY);
+  location.reload();
 }
 
 async function init() {
   projects = await api.listProjects();
-  await navigate(readUrlState(), 'replace');
+  await navigate();
   wireCrud();
-  // Back/forward and hand-edited URLs, same resolution as the boot path.
-  onUrlChange((state) => void navigate(state, 'none'));
+  void refreshInboxBadge();
+  // Back/forward and hand-edited URLs resolve the same way as the boot path.
+  onUrlChange(() => void navigate());
 }
 
 async function main() {
+  applyEditorPrefs();
   const name = storedUser() ?? (await promptForUser());
   user = withColors(name);
   appEl.hidden = false;

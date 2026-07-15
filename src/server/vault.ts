@@ -318,14 +318,19 @@ export class Vault {
     );
   }
 
-  /** Create an empty document; parent folders inside the project are created as needed. */
-  async createDoc(docPath: string): Promise<void> {
+  /**
+   * Create a document (empty, or seeded with plain markdown); parent folders
+   * inside the project are created as needed. Seed content is written straight
+   * to the file, so a room hydrates it as ordinary "disk"-authored text — no
+   * fabricated CRDT metadata.
+   */
+  async createDoc(docPath: string, content = ''): Promise<void> {
     const absolute = this.resolvePath(docPath);
     this.requireProject(docPath.split('/')[0]!);
     if (existsSync(absolute)) {
       throw new ConflictError(`Document "${docPath}" already exists.`);
     }
-    await Bun.write(absolute, '');
+    await Bun.write(absolute, content);
   }
 
   private requireDoc(docPath: string): string {

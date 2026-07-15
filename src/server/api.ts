@@ -519,8 +519,10 @@ export async function handleProjectsApi(
       case 'GET':
         return Response.json({ docs: await vault.listDocsMeta(project) });
       case 'POST': {
-        const path = requireRelPath((await body(req)).path, 'path');
-        await vault.createDoc(`${project}/${path}`);
+        const payload = await body(req);
+        const path = requireRelPath(payload.path, 'path');
+        const content = typeof payload.content === 'string' ? payload.content : '';
+        await vault.createDoc(`${project}/${path}`, content);
         return Response.json({ path }, { status: 201 });
       }
       default:
