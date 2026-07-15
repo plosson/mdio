@@ -41,6 +41,18 @@ function waitForPath(path: string) {
   return page.waitForFunction((needle) => location.pathname === needle, `/${path}`);
 }
 
+/**
+ * Wait for the project switcher to reflect a value. The select is updated
+ * during navigation and can also be re-rendered by the focus refetch, so
+ * assert on it by waiting rather than reading a single racy snapshot.
+ */
+function waitForSelected(value: string) {
+  return page.waitForFunction(
+    (needle) => (document.querySelector('#project-select') as HTMLSelectElement)?.value === needle,
+    value,
+  );
+}
+
 /** A peer is present when an avatar carries its name in the title tooltip. */
 function waitForPresence(name: string) {
   return page.waitForFunction(
@@ -533,7 +545,7 @@ test(
     // Sidebar is scoped: this project's docs (sans prefix), none of main's.
     const selected = () =>
       page.evaluate(() => (document.querySelector('#project-select') as HTMLSelectElement).value);
-    expect(await selected()).toBe('specs');
+    await waitForSelected('specs');
     await waitForText('#doc-list', 'plan.md');
     expect(await page.locator('li[data-path="main/demo.md"]').count()).toBe(0);
 
@@ -544,7 +556,7 @@ test(
     // Back crosses the project boundary and the switcher follows.
     await page.goBack();
     await waitForPath('specs/plan.md');
-    expect(await selected()).toBe('specs');
+    await waitForSelected('specs');
   },
   30_000,
 );
@@ -571,7 +583,7 @@ test(
     await page.waitForSelector('#dialog:not([hidden])');
     await page.click('#dialog-cancel');
     await page.waitForSelector('#dialog', { state: 'hidden' });
-    expect(await selected()).toBe('specs');
+    await waitForSelected('specs');
     expect(await page.evaluate(() => location.pathname)).toBe('/specs/plan.md');
 
     // A reserved project name is rejected and surfaced as an error toast.
@@ -579,13 +591,13 @@ test(
     await dialogSubmit('api');
     await page.waitForSelector('.toast-error');
     expect(await page.textContent('.toast-error')).toContain('reserved');
-    expect(await selected()).toBe('specs');
+    await waitForSelected('specs');
 
     // Create a project: URL becomes its page, sidebar is empty with an empty state.
     await page.click('#project-new');
     await dialogSubmit('research');
     await page.waitForFunction(() => location.pathname === '/research');
-    expect(await selected()).toBe('research');
+    await waitForSelected('research');
     expect(await page.locator('#doc-list li').count()).toBe(0);
     await page.waitForSelector('#empty-state:not([hidden])');
 
@@ -608,7 +620,7 @@ test(
     await page.click('.dialog-choice[data-value="main"]');
     await page.waitForFunction(() => location.pathname === '/main/brainstorm.md');
     await waitForText('.cm-content', '# Ideas from the UI');
-    expect(await selected()).toBe('main');
+    await waitForSelected('main');
 
     // Delete it: the UI falls back to the project's first document.
     await docMenu('doc-delete');
@@ -622,7 +634,7 @@ test(
     await projectMenu('project-rename');
     await dialogSubmit('lab');
     await page.waitForFunction(() => location.pathname === '/lab');
-    expect(await selected()).toBe('lab');
+    await waitForSelected('lab');
 
     // Delete it: back to the first remaining project, dropdown updated.
     await projectMenu('project-delete');
