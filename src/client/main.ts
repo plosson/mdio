@@ -20,12 +20,14 @@ import {
   writeView,
   type DocViewState,
   type View,
+  type ViewMode,
 } from './url-state';
 import { askChoice, askConfirm, askText, toast } from './dialogs';
 import { renderHome } from './home';
 import { renderAgents } from './agents';
 import { renderSettings } from './settings';
 import { applyEditorPrefs } from './prefs';
+import { initPalette, openPalette } from './palette';
 import type { SurfaceContext } from './surface';
 import * as api from './api';
 import { TEXT_KEY, registerAuthor } from '../shared/blame';
@@ -129,7 +131,6 @@ const crumbTitleEl = document.querySelector('#crumb-title')!;
 const statusDot = document.querySelector('#status-dot')! as HTMLElement;
 const presenceEl = document.querySelector('#presence')!;
 const activityEl = document.querySelector('#activity')! as HTMLElement;
-const docSearch = document.querySelector('#doc-search')! as HTMLInputElement;
 const docNewButton = document.querySelector('#doc-new')! as HTMLButtonElement;
 const projectMenuEl = document.querySelector('#project-menu')! as HTMLElement;
 const surfaceEl = document.querySelector('#surface')! as HTMLElement;
@@ -167,86 +168,51 @@ const markdownProse = HighlightStyle.define([
   { tag: tags.quote, color: 'var(--ink-soft)' },
 ]);
 
-document.querySelector('#history-open')!.addEventListener('click', () => {
-  if (currentPath) {
-    void openHistory(currentPath);
-  }
-});
+// ── History & versions drawer (two tabs sharing one overlay) ────────────────
+const drawerEl = document.querySelector('#drawer')! as HTMLElement;
+const drawerTitleEl = document.querySelector('#drawer-title')!;
+const drawerTabHistory = document.querySelector('#drawer-tab-history')! as HTMLButtonElement;
+const drawerTabVersions = document.querySelector('#drawer-tab-versions')! as HTMLButtonElement;
+const drawerPaneHistory = document.querySelector('#drawer-history')! as HTMLElement;
+const drawerPaneVersions = document.querySelector('#drawer-versions')! as HTMLElement;
 
-document.querySelector('#versions-open')!.addEventListener('click', () => {
-  if (currentPath) {
-    void openVersions(currentPath, user.name);
-  }
-});
-
-const searchResults = document.querySelector('#search-results')!;
-let searchTimer: ReturnType<typeof setTimeout> | null = null;
-
-function clearSearch() {
-  docSearch.value = '';
-  searchResults.innerHTML = '';
-  searchResults.hidden = true;
-  docList.hidden = false;
+function showDrawerTab(tab: 'history' | 'versions'): void {
+  drawerTabHistory.classList.toggle('active', tab === 'history');
+  drawerTabVersions.classList.toggle('active', tab === 'versions');
+  drawerPaneHistory.hidden = tab !== 'history';
+  drawerPaneVersions.hidden = tab !== 'versions';
 }
 
-async function runSearch(query: string): Promise<void> {
-  const trimmed = query.trim();
-  if (!currentProject || !trimmed) {
-    searchResults.hidden = true;
-    searchResults.innerHTML = '';
-    docList.hidden = false;
+/** Open the shared drawer on `tab`, loading both panes for the current document. */
+function openDrawer(tab: 'history' | 'versions'): void {
+  if (!currentPath) {
     return;
   }
-  let matches: api.SearchMatch[];
-  try {
-    matches = await api.searchProject(currentProject, trimmed);
-  } catch {
-    return;
-  }
-  // A slower query can resolve after the box changed — ignore stale results.
-  if (docSearch.value.trim() !== trimmed) {
-    return;
-  }
-  docList.hidden = true;
-  searchResults.hidden = false;
-  searchResults.innerHTML = '';
-  if (matches.length === 0) {
-    const empty = document.createElement('p');
-    empty.className = 'search-empty';
-    empty.textContent = 'No matches.';
-    searchResults.appendChild(empty);
-    return;
-  }
-  for (const match of matches) {
-    const full = `${currentProject}/${match.doc}`;
-    const row = document.createElement('button');
-    row.type = 'button';
-    row.className = 'search-hit';
-    const where = document.createElement('span');
-    where.className = 'search-where';
-    where.textContent = `${match.doc}:${match.line}`;
-    const snip = document.createElement('span');
-    snip.className = 'search-snippet';
-    snip.textContent = match.snippet;
-    row.append(where, snip);
-    row.addEventListener('click', () => {
-      clearSearch();
-      openDocument(full);
-    });
-    searchResults.appendChild(row);
-  }
+  drawerTitleEl.textContent = currentPath;
+  drawerEl.hidden = false;
+  showDrawerTab(tab);
+  void openHistory(currentPath);
+  void openVersions(currentPath, user.name);
 }
 
-docSearch.addEventListener('input', () => {
-  const query = docSearch.value;
-  if (searchTimer) {
-    clearTimeout(searchTimer);
+function closeDrawer(): void {
+  drawerEl.hidden = true;
+  closeHistory();
+  closeVersions();
+}
+
+document.querySelector('#drawer-open')!.addEventListener('click', () => openDrawer('history'));
+document.querySelector('#drawer-close')!.addEventListener('click', closeDrawer);
+drawerTabHistory.addEventListener('click', () => showDrawerTab('history'));
+drawerTabVersions.addEventListener('click', () => showDrawerTab('versions'));
+drawerEl.addEventListener('mousedown', (event) => {
+  if (event.target === drawerEl) {
+    closeDrawer();
   }
-  searchTimer = setTimeout(() => void runSearch(query), 200);
 });
-docSearch.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') {
-    clearSearch();
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !drawerEl.hidden) {
+    closeDrawer();
   }
 });
 
@@ -259,12 +225,16 @@ function peerInitial(name: string): string {
 function renderPresence(provider: WebsocketProvider) {
   presenceEl.innerHTML = '';
   for (const state of provider.awareness.getStates().values()) {
-    const peer = (state as { user?: { name?: string; color?: string; role?: string } }).user;
+    const peer = (state as { user?: { name?: string; color?: string; role?: string; status?: string } }).user;
     if (!peer?.name) {
       continue;
     }
     const avatar = document.createElement('span');
     avatar.className = peer.role === 'agent' ? 'avatar agent' : 'avatar human';
+    // A subtle pulse marks an agent that is actively composing right now.
+    if (peer.role === 'agent' && peer.status === 'composing') {
+      avatar.classList.add('composing');
+    }
     avatar.style.background = peer.color ?? '#888';
     avatar.textContent = peerInitial(peer.name);
     avatar.title = peer.name;
@@ -306,8 +276,7 @@ function renderBreadcrumb(path: string, text: string): void {
  * hash, keep comment focus from the URL), 'none' (hashchange already has it).
  */
 function teardownEditor() {
-  closeHistory();
-  closeVersions();
+  closeDrawer();
   activityEl.hidden = true;
   currentPath = null;
   if (current) {
@@ -532,7 +501,6 @@ function renderDocList() {
 
 async function loadProject(project: string | null): Promise<void> {
   currentProject = project;
-  clearSearch();
   docs = project ? await fetchDocs(project) : [];
   renderProjectSelect();
   renderDocList();
@@ -867,6 +835,58 @@ async function deleteDocFlow(): Promise<void> {
   });
 }
 
+// ── palette actions (⌘K) ──────────────────────────────────────────────────
+
+/** Cycle the doc-view mode Edit → Both → Read via the existing mode buttons. */
+function cycleMode(): void {
+  if (!currentPath) {
+    toast('Open a document first.', { tone: 'error' });
+    return;
+  }
+  const order: ViewMode[] = ['edit', 'both', 'read'];
+  const next = order[(order.indexOf(readDocViewState().mode) + 1) % order.length]!;
+  (document.querySelector(`#mode-${next}`) as HTMLButtonElement).click();
+}
+
+/** Copy the current project's MCP wiring command to the clipboard. */
+async function copyMcpConfig(): Promise<void> {
+  if (!currentProject) {
+    toast('Open a project first.', { tone: 'error' });
+    return;
+  }
+  try {
+    const config = await api.getMcpConfig(currentProject, `${user.name}/claude`);
+    await navigator.clipboard.writeText(config.configure);
+    toast('MCP config copied');
+  } catch {
+    toast('Could not copy the MCP config.', { tone: 'error' });
+  }
+}
+
+/** Route "Connect an agent" to a project's Agents page, asking which when several. */
+async function connectAgentFlow(): Promise<void> {
+  if (currentProject) {
+    go({ kind: 'agents', project: currentProject });
+    return;
+  }
+  if (projects.length === 0) {
+    toast('Create a project first.', { tone: 'error' });
+    return;
+  }
+  if (projects.length === 1) {
+    go({ kind: 'agents', project: projects[0]! });
+    return;
+  }
+  const project = await askChoice({
+    title: 'Connect an agent to…',
+    hint: 'Pick the project the agent should join.',
+    options: projects.map((name) => ({ value: name, label: name })),
+  });
+  if (project) {
+    go({ kind: 'agents', project });
+  }
+}
+
 /** A plain-DOM dropdown: toggle button + positioned list, closes on outside click / Escape. */
 function wireMenu(menuSelector: string): void {
   const menu = document.querySelector(menuSelector)! as HTMLElement;
@@ -926,27 +946,94 @@ function wireCrud() {
     }
   });
   settingsButton.addEventListener('click', () => go({ kind: 'settings' }));
+  document.querySelector('#nav-search')!.addEventListener('click', () => openPalette());
   document.querySelector('#logout')!.addEventListener('click', logoutNow);
+  wireShortcutsDialog();
 
   // A project created (or removed) in another tab should appear on return; the
-  // inbox badge refreshes on focus too (no polling loop yet — phase 3).
+  // inbox also refreshes on focus and on a slow interval (see startAttentionPolling).
   window.addEventListener('focus', () => {
     void refreshProjects();
     refreshInboxBadge();
   });
 }
 
+/**
+ * Attention: poll the inbox on a slow interval + on focus, keep the sidebar
+ * badge and the tab title (`(2) mdio`) in sync, and toast a newly-arrived
+ * unhandled mention (click deep-links to the thread). Explicit non-goals for
+ * now: web push, sounds, and per-thread read-state beyond the handled semantics.
+ */
+const MENTION_POLL_MS = 60_000;
+/** Threads we've already surfaced (`project/doc#threadId`) — to toast only new ones. */
+let knownMentions = new Set<string>();
+let attentionPrimed = false;
+
+function mentionKey(mention: api.InboxMention): string {
+  return `${mention.project}/${mention.doc}#${mention.threadId}`;
+}
+
+/** The `?` keyboard-shortcuts cheat sheet — opened by `?`, closed by Escape/backdrop. */
+function wireShortcutsDialog(): void {
+  const overlay = document.querySelector('#shortcuts')! as HTMLElement;
+  const close = () => {
+    overlay.hidden = true;
+  };
+  document.querySelector('#shortcuts-close')!.addEventListener('click', close);
+  overlay.addEventListener('mousedown', (event) => {
+    if (event.target === overlay) {
+      close();
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !overlay.hidden) {
+      close();
+      return;
+    }
+    // `?` opens it, unless the user is typing (input/textarea/CodeMirror/dialog).
+    const target = event.target as HTMLElement;
+    const typing =
+      target.closest('input, textarea, [contenteditable="true"], .cm-editor') !== null ||
+      !document.querySelector('#dialog')!.hasAttribute('hidden') ||
+      !document.querySelector('#palette')!.hasAttribute('hidden');
+    if (event.key === '?' && !typing) {
+      event.preventDefault();
+      overlay.hidden = false;
+    }
+  });
+}
+
 /** Sidebar Inbox badge = unhandled mentions + docs with pending suggestions. */
 async function refreshInboxBadge(): Promise<void> {
-  let count = 0;
+  let inbox: api.Inbox;
   try {
-    const inbox = await api.getInbox(user.name);
-    count = inbox.mentions.length + inbox.suggestions.reduce((sum, entry) => sum + entry.pending, 0);
+    inbox = await api.getInbox(user.name);
   } catch {
     return;
   }
+  const count = inbox.mentions.length + inbox.suggestions.reduce((sum, entry) => sum + entry.pending, 0);
   inboxBadgeEl.textContent = String(count);
   inboxBadgeEl.hidden = count === 0;
+  document.title = count > 0 ? `(${count}) mdio` : 'mdio';
+
+  // A mention we hadn't seen while the app was already open → nudge with a toast.
+  // The first poll only primes the set (existing mentions aren't "new arrivals").
+  const current = new Set(inbox.mentions.map(mentionKey));
+  if (attentionPrimed) {
+    for (const mention of inbox.mentions) {
+      if (!knownMentions.has(mentionKey(mention))) {
+        toast(`${mention.request.author} mentioned you in ${mention.doc}`, {
+          onClick: () =>
+            go(
+              { kind: 'doc', project: mention.project, doc: `${mention.project}/${mention.doc}` },
+              { doc: { comment: mention.threadId } },
+            ),
+        });
+      }
+    }
+  }
+  knownMentions = current;
+  attentionPrimed = true;
 }
 
 /** Change the signed-in name live: persist it and re-join every awareness room. */
@@ -981,7 +1068,18 @@ async function init() {
   projects = await api.listProjects();
   await navigate();
   wireCrud();
+  initPalette({
+    projects: () => projects,
+    currentProject: () => currentProject,
+    go,
+    newDocument: () => void newDocFlow(),
+    newProject: () => void newProjectFlow(),
+    connectAgent: () => void connectAgentFlow(),
+    toggleMode: cycleMode,
+    copyMcpConfig: () => void copyMcpConfig(),
+  });
   void refreshInboxBadge();
+  setInterval(() => void refreshInboxBadge(), MENTION_POLL_MS);
   // Back/forward and hand-edited URLs resolve the same way as the boot path.
   onUrlChange(() => void navigate());
 }

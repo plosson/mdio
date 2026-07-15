@@ -76,6 +76,14 @@ async function projectMenu(itemId: string) {
   await page.click(`#${itemId}`);
 }
 
+/** Open the shared History & versions drawer on its Versions tab. */
+async function openVersionsTab() {
+  await docMenu('drawer-open');
+  await page.waitForSelector('#drawer:not([hidden])');
+  await page.click('#drawer-tab-versions');
+  await page.waitForSelector('#drawer-versions:not([hidden])');
+}
+
 test(
   'two MCP agents and a human edit the same document concurrently without losing anything',
   async () => {
@@ -205,9 +213,12 @@ test(
 test(
   'history mode replays the edit log: scrub back to the seed, play forward again',
   async () => {
-    await docMenu('history-open');
-    await page.waitForSelector('#history:not([hidden])');
-    expect(await page.textContent('#history-title')).toBe('main/demo.md — history');
+    // The drawer opens on the History tab; its title is the document path.
+    await docMenu('drawer-open');
+    await page.waitForSelector('#drawer:not([hidden])');
+    await page.waitForSelector('#drawer-tab-history.active');
+    await page.waitForSelector('#drawer-history:not([hidden])');
+    expect(await page.textContent('#drawer-title')).toBe('main/demo.md');
 
     // Opens at the latest entry: everything everyone wrote is there.
     await waitForText('#history-editor .cm-content', 'BOB: appended a closing line.');
@@ -231,8 +242,8 @@ test(
       { timeout: 10_000 },
     );
     await page.click('#history-play'); // pause
-    await page.click('#history-close');
-    await page.waitForSelector('#history', { state: 'hidden' });
+    await page.click('#drawer-close');
+    await page.waitForSelector('#drawer', { state: 'hidden' });
   },
   30_000,
 );
@@ -665,16 +676,15 @@ test(
     await page.keyboard.type('\nVERSIONS_MARKER_ONE\n', { delay: 10 });
     await waitForText('.cm-content', 'VERSIONS_MARKER_ONE');
 
-    await docMenu('versions-open');
-    await page.waitForSelector('#versions:not([hidden])');
-    expect(await page.textContent('#versions-title')).toBe('main/demo.md — versions');
+    await openVersionsTab();
+    expect(await page.textContent('#drawer-title')).toBe('main/demo.md');
     await page.fill('#versions-label', 'checkpoint one');
     await page.click('#versions-form button[type="submit"]');
     await page.waitForFunction(() =>
       [...document.querySelectorAll('.version-label')].some((el) => el.textContent === 'checkpoint one'),
     );
-    await page.click('#versions-close');
-    await page.waitForSelector('#versions', { state: 'hidden' });
+    await page.click('#drawer-close');
+    await page.waitForSelector('#drawer', { state: 'hidden' });
 
     // Diverge from the checkpoint.
     await page.locator('.cm-content').click();
@@ -683,8 +693,7 @@ test(
     await waitForText('.cm-content', 'VERSIONS_MARKER_TWO');
 
     // Restore rolls the editor back to the checkpoint: ONE returns, TWO is gone.
-    await docMenu('versions-open');
-    await page.waitForSelector('#versions:not([hidden])');
+    await openVersionsTab();
     await page.click('.version-restore');
     await page.waitForSelector('#dialog:not([hidden])');
     await page.click('#dialog-confirm');
@@ -703,26 +712,57 @@ test(
 );
 
 test(
-  'project search finds a document by its content and opens it',
+  'the ⌘K palette jumps to documents, searches text, and runs actions (keyboard-driven)',
   async () => {
+    const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
     await page.goto(`${server.url}/main/demo.md?name=Human`);
     await waitForText('.cm-content', 'Demo document');
 
-    await page.fill('#doc-search', 'First note');
-    await page.waitForSelector('#search-results:not([hidden]) .search-hit');
-    expect(await page.textContent('#search-results .search-hit')).toInclude('demo.md');
+    // Open with the keyboard shortcut; documents load in.
+    await page.keyboard.press(`${mod}+k`);
+    await page.waitForSelector('#palette:not([hidden])');
+    await page.waitForSelector('.palette-item');
 
-    // Clicking a hit opens that document and dismisses the results.
-    await page.click('#search-results .search-hit');
-    await page.waitForFunction(() => location.pathname === '/main/demo.md');
-    await page.waitForSelector('#search-results', { state: 'hidden' });
-    expect(await page.inputValue('#doc-search')).toBe('');
+    // Keyboard nav: the first row is selected, ArrowDown moves the selection.
+    await page.waitForSelector('.palette-item.selected[data-index="0"]');
+    await page.keyboard.press('ArrowDown');
+    await page.waitForSelector('.palette-item.selected[data-index="1"]');
+
+    // Filter to a document by path, then open it with Enter (keyboard-only).
+    await page.fill('#palette-input', 'other');
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll('.palette-item-sub')].some((el) => el.textContent?.includes('other.md')),
+    );
+    await page.waitForSelector('.palette-item.selected');
+    await page.keyboard.press('Enter');
+    await waitForPath('main/other.md');
+    await page.waitForSelector('#palette', { state: 'hidden' });
+
+    // A full-text query (≥3 chars) adds an "In text" section for the current project.
+    await page.goto(`${server.url}/main/demo.md?name=Human`);
+    await waitForText('.cm-content', 'Demo document');
+    await page.keyboard.press(`${mod}+k`);
+    await page.waitForSelector('#palette:not([hidden])');
+    await page.fill('#palette-input', 'Notes');
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll('.palette-section')].some((el) => el.textContent?.startsWith('In text')),
+    );
+
+    // An action: filter to Settings and click it (mouse path) → navigates.
+    await page.fill('#palette-input', 'Settings');
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll('.palette-item-label')].some((el) => el.textContent === 'Settings'),
+    );
+    await page.click('.palette-item:has(.palette-item-label:text-is("Settings"))');
+    await waitForPath('settings');
+    await page.waitForSelector('#surface:not([hidden]) .settings');
+    await page.waitForSelector('#palette', { state: 'hidden' });
   },
   30_000,
 );
 
 test(
-  'an agent proposes a suggested edit and the human accepts it in the browser',
+  'an agent proposes a suggested edit; the human accepts it via the inline popover',
   async () => {
     await page.goto(`${server.url}/main/demo.md?name=Human`);
     await waitForText('.cm-content', 'Demo document');
@@ -737,17 +777,58 @@ test(
     });
     await alice.call('suggest_replace', { matchId: matches[0]!.matchId, text: 'REPLACED_WORD' });
 
-    // The human sees the suggestion panel, the inline highlight, and the proposal — text intact.
+    // The human sees the inline highlight and the rail retitled as bulk review — text intact.
     await page.waitForSelector('#suggestions-panel:not([hidden]) .suggest-card');
     await page.waitForSelector('.mdio-suggest-replace');
-    expect(await page.textContent('#suggestions-panel')).toInclude('REPLACED_WORD');
+    await waitForText('#suggestions-title', 'Review 1 suggestion');
     expect(await page.textContent('.cm-content')).toInclude('SUGGEST_TARGET_WORD');
 
-    // Accepting applies the change and empties the panel.
-    await page.click('#suggestions-panel .suggest-btn.primary');
+    // Clicking the marked range opens the anchored popover with the proposal.
+    await page.click('.mdio-suggest-replace');
+    await page.waitForSelector('.suggest-popover');
+    expect(await page.textContent('.suggest-popover')).toInclude('plosson/alice');
+    expect(await page.textContent('.suggest-popover')).toInclude('REPLACED_WORD');
+
+    // Accepting from the popover applies the change and dismisses everything.
+    await page.click('.suggest-popover .suggest-btn.primary');
     await page.waitForFunction(() => {
       const text = document.querySelector('.cm-content')?.textContent ?? '';
       return text.includes('REPLACED_WORD') && !text.includes('SUGGEST_TARGET_WORD');
+    });
+    await page.waitForSelector('.suggest-popover', { state: 'hidden' });
+    await page.waitForSelector('#suggestions-panel', { state: 'hidden' });
+  },
+  30_000,
+);
+
+test(
+  'bulk review: Accept all applies every pending suggestion behind a danger confirm',
+  async () => {
+    await page.goto(`${server.url}/main/demo.md?name=Human`);
+    await waitForText('.cm-content', 'Demo document');
+    await alice.call('open_document', { path: 'demo.md' });
+
+    // Two independent insert suggestions at the document end.
+    await alice.call('place_cursor', { boundary: 'end' });
+    await alice.call('insert_text', { text: '\nBULK_ANCHOR_A\nBULK_ANCHOR_B\n' });
+    await waitForText('.cm-content', 'BULK_ANCHOR_B');
+    const a = await alice.call<{ matches: Array<{ matchId: string }> }>('search_text', { query: 'BULK_ANCHOR_A' });
+    await alice.call('suggest_insert', { matchId: a.matches[0]!.matchId, edge: 'end', text: ' BULK_ADDED_A' });
+    const b = await alice.call<{ matches: Array<{ matchId: string }> }>('search_text', { query: 'BULK_ANCHOR_B' });
+    await alice.call('suggest_insert', { matchId: b.matches[0]!.matchId, edge: 'end', text: ' BULK_ADDED_B' });
+
+    await waitForText('#suggestions-title', 'Review 2 suggestions');
+
+    // Accept all is gated by a danger confirm.
+    await page.click('#suggest-accept-all');
+    await page.waitForSelector('#dialog:not([hidden])');
+    expect(await page.textContent('#dialog-title')).toInclude('Accept all 2 suggestions');
+    await page.click('#dialog-confirm');
+
+    // Both proposals land in the text and the rail empties.
+    await page.waitForFunction(() => {
+      const text = document.querySelector('.cm-content')?.textContent ?? '';
+      return text.includes('BULK_ADDED_A') && text.includes('BULK_ADDED_B');
     });
     await page.waitForSelector('#suggestions-panel', { state: 'hidden' });
   },
@@ -805,6 +886,34 @@ test(
     await page.waitForFunction(() =>
       [...document.querySelectorAll('.agents-peer-name')].some((el) => el.textContent === 'plosson/alice'),
     );
+  },
+  30_000,
+);
+
+test(
+  'the Agents page renders the activity feed of what agents did in the project',
+  async () => {
+    // Alice re-joins and proposes an edit so the feed has fresh events to show.
+    await alice.call('open_document', { path: 'demo.md' });
+    await alice.call('place_cursor', { boundary: 'end' });
+    await alice.call('insert_text', { text: '\nFEED_ANCHOR_WORD\n' });
+    const { matches } = await alice.call<{ matches: Array<{ matchId: string }> }>('search_text', {
+      query: 'FEED_ANCHOR_WORD',
+    });
+    await alice.call('suggest_replace', { matchId: matches[0]!.matchId, text: 'FEED_REPLACED_WORD' });
+
+    await page.goto(`${server.url}/main/agents?name=Human`);
+    await page.waitForSelector('#surface:not([hidden]) .agents');
+
+    // The feed (polled ~3s) lists activity attributed to alice, with a doc link.
+    await page.waitForSelector('.agents-activity .activity-row', { timeout: 15_000 });
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll('.agents-activity .activity-actor')].some(
+        (el) => el.textContent === 'plosson/alice',
+      ),
+    );
+    expect(await page.textContent('.agents-activity')).toInclude('suggested an edit');
+    expect(await page.locator('.agents-activity .activity-doc').first().textContent()).toContain('demo.md');
   },
   30_000,
 );
@@ -886,4 +995,64 @@ test(
     );
   },
   30_000,
+);
+
+test(
+  'attention: the tab title counts pending mentions and a new one toasts a deep-link',
+  async () => {
+    const danaMentions = async () =>
+      (
+        (await (await fetch(`${server.url}/api/mentions?who=dana`)).json()) as {
+          mentions: unknown[];
+        }
+      ).mentions.length;
+
+    // Seed a pending mention for dana and wait until the server sweep reflects it,
+    // so dana's first poll on load already has a non-zero count.
+    await alice.call('open_document', { path: 'other.md' });
+    const seed = await alice.call<{ matches: Array<{ matchId: string }> }>('search_text', { query: 'Other' });
+    await alice.call('add_comment', { matchId: seed.matches[0]!.matchId, body: 'first ping @dana' });
+    for (let attempt = 0; attempt < 40; attempt++) {
+      if ((await danaMentions()) >= 1) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    await page.goto(`${server.url}/?name=dana`);
+    await page.waitForSelector('#surface:not([hidden]) .home');
+
+    // The tab title and sidebar badge reflect the pending count.
+    await page.waitForFunction(() => /^\(\d+\) mdio$/.test(document.title));
+    await page.waitForSelector('#inbox-badge:not([hidden])');
+
+    // A brand-new mention arrives while dana has the app open: alice @-mentions
+    // dana in a different document.
+    await alice.call('open_document', { path: 'demo.md' });
+    const { matches } = await alice.call<{ matches: Array<{ matchId: string }> }>('search_text', {
+      query: 'Demo document',
+    });
+    await alice.call('add_comment', { matchId: matches[0]!.matchId, body: 'please review this @dana' });
+
+    // A focus triggers a poll; the newly-arrived mention pops a clickable toast.
+    // Poll via repeated focus events to absorb the sync delay to the server room.
+    for (let attempt = 0; attempt < 20; attempt++) {
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      if ((await page.locator('.toast.clickable').count()) > 0) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    await page.waitForSelector('.toast.clickable');
+    const toastText = (await page.textContent('.toast.clickable'))!;
+    expect(toastText).toInclude('plosson/alice');
+    expect(toastText).toInclude('demo.md');
+
+    // Clicking the toast deep-links to the thread in that document.
+    await page.click('.toast.clickable');
+    await waitForPath('main/demo.md');
+    await page.waitForFunction(() => location.hash.includes('comment=c-'));
+    await page.waitForSelector('.comment-card.focused');
+  },
+  40_000,
 );
