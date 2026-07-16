@@ -8,6 +8,31 @@ headers start with the first tagged release.
 ## Unreleased
 
 ### Changed
+- **Draggable editor/preview divider** — in Both mode the divider between the
+  editor and the preview is a drag handle: resize the split (clamped 20–80%),
+  the ratio persists in localStorage, double-click resets to an even split.
+
+### Fixed
+- **Installer no longer writes relative PATH entries** — a relative
+  `MDIO_INSTALL_DIR` (e.g. `./bin`) is canonicalized to an absolute path
+  before the shell-rc PATH lines are written, so rc files never gain a
+  cwd-dependent entry and the already-on-PATH check matches correctly.
+- **Both-mode split no longer fights the comments panel** — the editor,
+  divider, and preview now live in their own flex pane, so dragging the
+  divider resizes only those two; the comments panel stays pinned instead of
+  being pushed off-screen. The preview's reading column is now capped/centered
+  via an inner wrapper (`.preview-column`) instead of huge incompressible pane
+  padding — a narrow preview wraps text normally instead of one word per line,
+  and headings align with the body column in Read mode.
+- **Agents page listed humans under "Connected agents"** — peers are now
+  grouped by role: agents keep the section, humans (plain names, per the
+  identity convention) appear under their own "Humans online" subheading. The
+  empty state reads "No agents connected yet" even while humans are present.
+- **Avatar chips outside the doc header rendered unstyled** — the base avatar
+  CSS was scoped to the header presence stack, so Home project cards, the
+  agents page, and inbox rows showed stretched unshaped boxes. The base styles
+  are now global (`.avatar`); only the overlap and composing pulse stay
+  header-specific.
 - **UX rework, phase 3 — make the agent loop visible.** Acting on agent work,
   seeing it, moving fast, and getting pulled back when needed.
   - **Inline suggestion popovers** — clicking a suggestion mark (or ghost insert

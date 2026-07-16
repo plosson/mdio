@@ -99,6 +99,10 @@ if [ "$MODE" = update ]; then
   echo "Updating $BIN \${current:-?} -> $latest ..."
 else
   mkdir -p "$INSTALL_DIR"
+  # Canonicalize: a relative MDIO_INSTALL_DIR must not leak into rc files
+  # (a relative PATH entry is meaningless outside the install cwd) and must
+  # match the already-on-PATH check below.
+  INSTALL_DIR=$(CDPATH= cd "$INSTALL_DIR" && pwd)
   dest="$INSTALL_DIR/$BIN"
 fi
 

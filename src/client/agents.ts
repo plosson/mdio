@@ -176,27 +176,35 @@ export function renderAgents(host: HTMLElement, ctx: SurfaceContext, project: st
       );
     };
 
-    const renderPeers = (peers: api.ProjectPeer[]) => {
-      if (peers.length === 0) {
-        peersList.replaceChildren(el('p', { class: 'agents-empty', text: 'No one is connected right now.' }));
-        return;
-      }
-      peersList.replaceChildren(
-        ...peers.map((peer) =>
-          el(
-            'div',
-            { class: 'agents-peer' },
-            avatar(peer),
-            el(
-              'div',
-              { class: 'agents-peer-main' },
-              el('span', { class: 'agents-peer-name', text: peer.name }),
-              el('span', { class: 'agents-peer-status', text: statusLabel(peer) }),
-            ),
-            el('span', { class: `online-dot ${peer.role}` }),
-          ),
+    const peerRow = (peer: api.ProjectPeer) =>
+      el(
+        'div',
+        { class: 'agents-peer' },
+        avatar(peer),
+        el(
+          'div',
+          { class: 'agents-peer-main' },
+          el('span', { class: 'agents-peer-name', text: peer.name }),
+          el('span', { class: 'agents-peer-status', text: statusLabel(peer) }),
         ),
+        el('span', { class: `online-dot ${peer.role}` }),
       );
+
+    // Plain names are humans (convention, see CLAUDE.md) — they show in their
+    // own group so the "Connected agents" list never presents a human as one.
+    const renderPeers = (peers: api.ProjectPeer[]) => {
+      const agents = peers.filter((peer) => peer.role === 'agent');
+      const humans = peers.filter((peer) => peer.role !== 'agent');
+      const rows: HTMLElement[] = [];
+      if (agents.length === 0) {
+        rows.push(el('p', { class: 'agents-empty', text: 'No agents connected yet.' }));
+      } else {
+        rows.push(...agents.map(peerRow));
+      }
+      if (humans.length > 0) {
+        rows.push(el('h3', { class: 'agents-humans-head', text: 'Humans online' }), ...humans.map(peerRow));
+      }
+      peersList.replaceChildren(...rows);
     };
 
     const poll = async () => {

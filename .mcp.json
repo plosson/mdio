@@ -1,10 +1,9 @@
 {
   "mcpServers": {
     "mdio": {
-      "command": "bun",
+      "command": "mdio",
       "args": [
-        "run",
-        "src/mcp/index.ts"
+        "mcp"
       ],
       "env": {
         "MDIO_SERVER": "http://localhost:4321",

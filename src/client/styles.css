@@ -386,10 +386,13 @@ body {
   align-items: center;
 }
 
-#presence .avatar {
+/* Base avatar chip — shared by the header stack, Home cards, agents page,
+   and inbox rows (round for humans, rounded-square for agents). */
+.avatar {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   width: 26px;
   height: 26px;
   font-size: 11px;
@@ -404,11 +407,11 @@ body {
   margin-left: -8px;
 }
 
-#presence .avatar.human {
+.avatar.human {
   border-radius: 50%;
 }
 
-#presence .avatar.agent {
+.avatar.agent {
   border-radius: 6px;
 }
 
@@ -732,6 +735,14 @@ body {
   display: none;
 }
 
+/* Editor + divider + preview share this pane; side panels (comments) sit
+   outside it, so the drag split never squeezes or displaces them. */
+#split-pane {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+}
+
 #editor {
   flex: 1;
   overflow: hidden;
@@ -742,13 +753,50 @@ body {
   display: none;
 }
 
+/* Both mode: the handle carries the divider and the editor takes --split. */
+#workspace.split #editor {
+  flex: 0 0 var(--split, 50%);
+}
+
+#workspace.split #preview {
+  border-left: none;
+}
+
+#split-handle {
+  flex: 0 0 7px;
+  cursor: col-resize;
+  touch-action: none;
+  background: linear-gradient(
+    to right,
+    transparent calc(50% - 0.5px),
+    var(--line) calc(50% - 0.5px),
+    var(--line) calc(50% + 0.5px),
+    transparent calc(50% + 0.5px)
+  );
+}
+
+#split-handle:hover,
+#split-handle.dragging {
+  background: linear-gradient(
+    to right,
+    transparent calc(50% - 1px),
+    var(--accent) calc(50% - 1px),
+    var(--accent) calc(50% + 1px),
+    transparent calc(50% + 1px)
+  );
+}
+
+#split-handle[hidden] {
+  display: none;
+}
+
 #preview {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   border-left: 1px solid var(--line);
-  /* Cap the reading column and center it (width is a Settings preference). */
-  padding: 32px max(24px, calc((100% - var(--reading-width)) / 2));
+  padding: 32px 24px;
   font-size: 15px;
   line-height: 1.7;
 }
@@ -826,6 +874,16 @@ body {
   color: #c2352b;
   font-size: 12px;
   text-align: left;
+}
+
+/* Reading column: cap and center the rendered content (width is a Settings
+   preference). Sized on the wrapper — not per child — so the ch-based width
+   resolves against the body font (a per-child 72ch would balloon on
+   headings), and done with max-width — not pane padding — so a narrow pane
+   compresses gracefully instead of overflowing under side panels. */
+#preview .preview-column {
+  max-width: var(--reading-width);
+  margin-inline: auto;
 }
 
 #comment-add.nudge {
@@ -2406,6 +2464,15 @@ body {
 
 .agents-empty {
   font-size: 13px;
+  color: var(--ink-faint);
+}
+
+.agents-humans-head {
+  margin: 10px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--ink-faint);
 }
 
