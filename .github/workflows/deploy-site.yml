@@ -18,7 +18,7 @@ jobs:
 
       - name: Install siteio
         run: |
-          curl -LsSf https://siteio.houlahop.com/install | sh
+          curl -LsSf https://houlahop.com/siteio/install | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Login
